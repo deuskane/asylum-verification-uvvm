@@ -1,0 +1,55 @@
+{
+ "signal": [
+  {
+   "name": "TCK",
+   "wave": "lhlhlhlhlhlhlhlhlh"
+  },
+  {
+   "name": "TMS",
+   "wave": "1.0.........1...0."
+  },
+  {
+   "name": "TDI",
+   "wave": "0.....3.3.3.3.0...",
+   "data": [
+    "d0",
+    "d1",
+    "d2",
+    "d3"
+   ]
+  },
+  {
+   "name": "TDO",
+   "wave": "z.....5.5.5.5.z...",
+   "data": [
+    "c0",
+    "c1",
+    "c2",
+    "c3"
+   ]
+  },
+  {},
+  {
+   "name": "TAP state",
+   "wave": "22.2.4.......2.2.2",
+   "data": [
+    "Idle",
+    "Select-DR",
+    "Capture-DR",
+    "Shift-DR",
+    "Exit1-DR",
+    "Update-DR",
+    "Idle"
+   ]
+  }
+ ],
+ "head": {
+  "text": "jtag_scan_dr of 4 bits (d3..d0 in, c3..c0 captured out) from Run-Test/Idle to Run-Test/Idle"
+ },
+ "foot": {
+  "text": "TMS / TDI change when TCK falls, TDO sampled just before TCK rises, LSB first. The TAP changes TDO on the falling edge. DR scan : width + 5 TCK."
+ },
+ "config": {
+  "hscale": 2
+ }
+}

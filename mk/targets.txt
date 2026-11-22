@@ -1,0 +1,17 @@
+default              : Library only (no toplevel), used as a dependency
+sim_apb              : Simulation of apb_bfm_pkg against an APB slave model - build only (scenarios of TESTS_LIST)
+sim_apb_back_to_back : Simulation of apb_bfm_pkg - back to back writes and reads, 2 cycles per transfer
+sim_apb_pslverr      : Simulation of apb_bfm_pkg - pslverr expected, not expected and missing
+sim_apb_reset_values : Simulation of apb_bfm_pkg - read of the slave memory after the reset
+sim_apb_timeout      : Simulation of apb_bfm_pkg - timeout of the BFM, then a normal transfer
+sim_apb_wait_states  : Simulation of apb_bfm_pkg - 1, 3 and max_wait_cycles wait states
+sim_apb_write_read   : Simulation of apb_bfm_pkg - write then read back, don't care bits, mismatch of apb_check
+sim_jtag             : Simulation of jtag_bfm_pkg against an IEEE 1149.1 TAP model - build only (scenarios of TESTS_LIST)
+sim_jtag_bypass      : Simulation of jtag_bfm_pkg - BYPASS and undecoded opcode, one bit delay
+sim_jtag_idcode      : Simulation of jtag_bfm_pkg - IDCODE read, don't care bits, mismatch of jtag_check_dr
+sim_jtag_idle        : Simulation of jtag_bfm_pkg - number of TCK cycles of each procedure, idle cycles
+sim_jtag_ir8         : Simulation of jtag_bfm_pkg, 8-bit IR, 7-bit user data register, TCK 30 ns, every scenario
+sim_jtag_reset_tms   : Simulation of jtag_bfm_pkg - reset by TMS only (no TRST pulse), IDCODE selected
+sim_jtag_reset_trst  : Simulation of jtag_bfm_pkg - TRST pulse then TMS reset, IDCODE selected
+sim_jtag_user_dr     : Simulation of jtag_bfm_pkg - wide user data register, IR then DR scans
+
