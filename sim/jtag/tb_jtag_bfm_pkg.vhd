@@ -13,13 +13,15 @@
 --  Constants and helpers shared by the scenarios of tb_jtag (test of
 --  jtag_bfm_pkg against the TAP model tb_jtag_tap) : IDCODE and opcodes of
 --  the TAP model, states of the TAP controller, JTAG procedures through the
---  BFM, each one followed by a check that the TAP is in Run-Test/Idle.
+--  BFM, each one followed by a check of the state of the TAP (Run-Test/Idle,
+--  Test-Logic-Reset after jtag_trst), TCK cycles with a given TMS sequence.
 -------------------------------------------------------------------------------
 -- Copyright (c) 2026
 -------------------------------------------------------------------------------
 -- Revisions  :
 -- Date        Version  Author   Description
 -- 2026-11-22  1.0      mrosiere Created
+-- 2026-11-22  1.1      mrosiere tb_trst, tb_tms
 -------------------------------------------------------------------------------
 
 library ieee;
@@ -54,6 +56,15 @@ package tb_jtag_bfm_pkg is
   -- JTAG procedures through the BFM, then a check of the state of the TAP
   -- (Run-Test/Idle)
   procedure tb_reset(
+    constant msg          : in    string;
+    signal   jtag_if      : inout t_jtag_if;
+    signal   tap_state    : in    tap_state_t;
+    constant config       : in    t_jtag_bfm_config
+    );
+
+  -- TRST* pulse alone : Test-Logic-Reset (state unchanged without TRST*,
+  -- config.trst_enable false)
+  procedure tb_trst(
     constant msg          : in    string;
     signal   jtag_if      : inout t_jtag_if;
     signal   tap_state    : in    tap_state_t;
@@ -95,6 +106,14 @@ package tb_jtag_bfm_pkg is
     constant alert_level  : in    t_alert_level     := ERROR
     );
 
+  -- One TCK cycle per value of tms (left to right), TDI = 0, timed as the
+  -- BFM : moves the TAP outside the procedures of the BFM (no check)
+  procedure tb_tms(
+    constant tms          : in    std_logic_vector;
+    signal   jtag_if      : inout t_jtag_if;
+    constant config       : in    t_jtag_bfm_config
+    );
+
 end package tb_jtag_bfm_pkg;
 
 package body tb_jtag_bfm_pkg is
@@ -125,6 +144,23 @@ package body tb_jtag_bfm_pkg is
                   config       => config);
     check_run_test_idle(msg, tap_state);
   end procedure tb_reset;
+
+  procedure tb_trst(
+    constant msg          : in    string;
+    signal   jtag_if      : inout t_jtag_if;
+    signal   tap_state    : in    tap_state_t;
+    constant config       : in    t_jtag_bfm_config
+    ) is
+  begin
+    jtag_trst    (msg          => msg,
+                  jtag_if      => jtag_if,
+                  scope        => C_TB_SCOPE,
+                  config       => config);
+    if config.trst_enable
+    then
+      check_value(tap_state = TEST_LOGIC_RESET, ERROR, "TAP in Test-Logic-Reset after " & msg, C_TB_SCOPE);
+    end if;
+  end procedure tb_trst;
 
   procedure tb_idle(
     constant num_cycles   : in    natural;
@@ -195,5 +231,21 @@ package body tb_jtag_bfm_pkg is
                   config       => config);
     check_run_test_idle(msg, tap_state);
   end procedure tb_check_dr;
+
+  procedure tb_tms(
+    constant tms          : in    std_logic_vector;
+    signal   jtag_if      : inout t_jtag_if;
+    constant config       : in    t_jtag_bfm_config
+    ) is
+  begin
+    for i in tms'range loop
+      jtag_if.tck <= '0';
+      jtag_if.tms <= tms(i);
+      jtag_if.tdi <= '0';
+      wait for config.tck_period/2;
+      jtag_if.tck <= '1';
+      wait for config.tck_period/2;
+    end loop;
+  end procedure tb_tms;
 
 end package body tb_jtag_bfm_pkg;

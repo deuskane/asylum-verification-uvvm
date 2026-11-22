@@ -13,8 +13,9 @@
 --  IEEE 1149.1 TAP model of tb_jtag (simulation only) :
 --  - TAP controller of 16 states, reset by trst_b_i, by arst_b_i (power-on
 --    reset) or by TMS = 1 during 5 TCK,
---  - instruction register of IR_WIDTH bits, Capture-IR loads "0...01",
---    IDCODE selected in Test-Logic-Reset,
+--  - instruction register of IR_WIDTH bits, Capture-IR loads "0...01"
+--    ("10...01", MSB set, when capture_error_i = '1' : negative test of
+--    jtag_ir_capture_monitor), IDCODE selected in Test-Logic-Reset,
 --  - data registers : IDCODE (C_IDCODE), BYPASS (1 bit, capture 0), a user
 --    register of DR_WIDTH bits (captures its value, updated in Update-DR,
 --    cleared by arst_b_i only),
@@ -27,6 +28,7 @@
 -- Revisions  :
 -- Date        Version  Author   Description
 -- 2026-11-22  1.0      mrosiere Created
+-- 2026-11-22  1.1      mrosiere capture_error_i
 -------------------------------------------------------------------------------
 
 library ieee;
@@ -52,6 +54,8 @@ entity tb_jtag_tap is
    ;tdi_i           : in  std_logic
    ;trst_b_i        : in  std_logic
    ;tdo_o           : out std_logic
+    -- Capture-IR loads a wrong value (MSB set)
+   ;capture_error_i : in  std_logic
     -- State of the TAP controller
    ;state_o         : out tap_state_t
   );
@@ -81,8 +85,9 @@ architecture sim of tb_jtag_tap is
     EXIT2_IR         => (SHIFT_IR     , UPDATE_IR       ),
     UPDATE_IR        => (RUN_TEST_IDLE, SELECT_DR_SCAN  ));
 
-  constant C_IR_RESET   : std_logic_vector(IR_WIDTH-1 downto 0) := std_logic_vector(to_unsigned(C_IR_IDCODE, IR_WIDTH));
-  constant C_IR_CAPTURE : std_logic_vector(IR_WIDTH-1 downto 0) := std_logic_vector(to_unsigned(1          , IR_WIDTH));
+  constant C_IR_RESET         : std_logic_vector(IR_WIDTH-1 downto 0) := std_logic_vector(to_unsigned(C_IR_IDCODE, IR_WIDTH));
+  constant C_IR_CAPTURE       : std_logic_vector(IR_WIDTH-1 downto 0) := std_logic_vector(to_unsigned(1          , IR_WIDTH));
+  constant C_IR_CAPTURE_ERROR : std_logic_vector(IR_WIDTH-1 downto 0) := '1' & C_IR_CAPTURE(IR_WIDTH-2 downto 0);
 
   type dr_t is (DR_IDCODE, DR_BYPASS, DR_USER);
 
@@ -125,7 +130,12 @@ begin  -- architecture sim
 
       case state is
         when CAPTURE_IR =>
-          ir_sr     <= C_IR_CAPTURE;
+          if capture_error_i = '1'
+          then
+            ir_sr   <= C_IR_CAPTURE_ERROR;
+          else
+            ir_sr   <= C_IR_CAPTURE;
+          end if;
         when SHIFT_IR   =>
           ir_sr     <= tdi_i & ir_sr(IR_WIDTH-1 downto 1);
         when CAPTURE_DR =>
