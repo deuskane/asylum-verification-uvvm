@@ -18,6 +18,7 @@
 -- Revisions  :
 -- Date        Version  Author   Description
 -- 2026-11-22  1.0      mrosiere Created
+-- 2026-11-22  1.1      mrosiere trst, ir_capture, ir_capture_error
 -------------------------------------------------------------------------------
 
 library ieee;
@@ -37,7 +38,7 @@ use     work.tb_jtag_bfm_pkg.all;
 package tb_jtag_tests_pkg is
 
   -- Names of the scenarios (valid items of TESTS_LIST)
-  constant C_TESTS : string := "reset_trst,reset_tms,idcode,bypass,user_dr,idle";
+  constant C_TESTS : string := "reset_trst,reset_tms,idcode,bypass,user_dr,idle,trst,ir_capture,ir_capture_error";
 
   -- Run the scenario name
   procedure run_test(
@@ -45,6 +46,8 @@ package tb_jtag_tests_pkg is
     signal   jtag_if     : inout t_jtag_if;
     signal   tap_state   : in    tap_state_t;
     signal   trst_cnt    : in    natural;
+    signal   tck_cnt     : in    natural;
+    signal   capture_err : out   std_logic;
     constant config      : in    t_jtag_bfm_config;
     constant dr_width    : in    positive
     );
@@ -58,6 +61,8 @@ package body tb_jtag_tests_pkg is
     signal   jtag_if     : inout t_jtag_if;
     signal   tap_state   : in    tap_state_t;
     signal   trst_cnt    : in    natural;
+    signal   tck_cnt     : in    natural;
+    signal   capture_err : out   std_logic;
     constant config      : in    t_jtag_bfm_config;
     constant dr_width    : in    positive
     ) is
@@ -80,6 +85,15 @@ package body tb_jtag_tests_pkg is
     elsif string_eq(name, "idle")
     then
       work.tb_jtag_idle_pkg.run      (jtag_if, tap_state, trst_cnt, config, dr_width);
+    elsif string_eq(name, "trst")
+    then
+      work.tb_jtag_trst_pkg.run      (jtag_if, tap_state, trst_cnt, tck_cnt, config);
+    elsif string_eq(name, "ir_capture")
+    then
+      work.tb_jtag_ir_capture_pkg.run(jtag_if, tap_state, config);
+    elsif string_eq(name, "ir_capture_error")
+    then
+      work.tb_jtag_ir_capture_error_pkg.run(jtag_if, tap_state, capture_err, config);
     else
       alert(TB_ERROR, "Unknown test " & name, C_TB_SCOPE);
     end if;

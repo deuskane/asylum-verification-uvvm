@@ -16,9 +16,11 @@ CAPI=2:
 # Revisions  :
 # Date        Version  Author   Description
 # 2026-11-22  1.0.0    mrosiere Created
+# 2026-11-22  1.1.0    mrosiere jtag_bfm_pkg : jtag_trst, Capture-IR monitor
+#                               jtag_ir_capture_monitor
 #-----------------------------------------------------------------------------
 
-name        : asylum:verification:uvvm:1.0.0
+name        : asylum:verification:uvvm:1.1.0
 description : UVVM BFMs of the Asylum testbenches
 
 #=========================================
@@ -70,6 +72,9 @@ filesets:
       - sim/jtag/tb_jtag_bypass_pkg.vhd
       - sim/jtag/tb_jtag_user_dr_pkg.vhd
       - sim/jtag/tb_jtag_idle_pkg.vhd
+      - sim/jtag/tb_jtag_trst_pkg.vhd
+      - sim/jtag/tb_jtag_ir_capture_pkg.vhd
+      - sim/jtag/tb_jtag_ir_capture_error_pkg.vhd
       - sim/jtag/tb_jtag_tests_pkg.vhd
       - sim/jtag/tb_jtag.vhd
     file_type    : vhdlSource-2008
@@ -260,12 +265,45 @@ targets:
       - TCK_PERIOD_NS=100
 
   #---------------------------------------
+  sim_jtag_trst:
+  #---------------------------------------
+    << : *sim_jtag
+    description     : Simulation of jtag_bfm_pkg - TRST pulse alone (jtag_trst), no TCK edge, TB_ERROR without TRST
+    parameters      :
+      - TESTS_LIST=trst
+      - IR_WIDTH=5
+      - DR_WIDTH=40
+      - TCK_PERIOD_NS=100
+
+  #---------------------------------------
+  sim_jtag_ir_capture:
+  #---------------------------------------
+    << : *sim_jtag
+    description     : Simulation of jtag_bfm_pkg - Capture-IR monitor, IR scans checked, TRST in Shift-IR, longer IR scan
+    parameters      :
+      - TESTS_LIST=ir_capture
+      - IR_WIDTH=5
+      - DR_WIDTH=40
+      - TCK_PERIOD_NS=100
+
+  #---------------------------------------
+  sim_jtag_ir_capture_error:
+  #---------------------------------------
+    << : *sim_jtag
+    description     : Simulation of jtag_bfm_pkg - Capture-IR monitor, wrong captured value and shorter IR scan alerts
+    parameters      :
+      - TESTS_LIST=ir_capture_error
+      - IR_WIDTH=5
+      - DR_WIDTH=40
+      - TCK_PERIOD_NS=100
+
+  #---------------------------------------
   sim_jtag_ir8:
   #---------------------------------------
     << : *sim_jtag
     description     : Simulation of jtag_bfm_pkg, 8-bit IR, 7-bit user data register, TCK 30 ns, every scenario
     parameters      :
-      - TESTS_LIST=reset_trst,reset_tms,idcode,bypass,user_dr,idle
+      - TESTS_LIST=reset_trst,reset_tms,idcode,bypass,user_dr,idle,trst,ir_capture,ir_capture_error
       - IR_WIDTH=8
       - DR_WIDTH=7
       - TCK_PERIOD_NS=30
