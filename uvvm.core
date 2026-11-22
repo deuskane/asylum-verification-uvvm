@@ -30,6 +30,7 @@ filesets:
   #---------------------------------------
     files        :
       - src_bfm/apb_bfm_pkg.vhd
+      - src_bfm/jtag_bfm_pkg.vhd
     file_type    : vhdlSource-2008
     logical_name : asylum_uvvm
     depend       :
@@ -50,6 +51,27 @@ filesets:
       - sim/apb/tb_apb_timeout_pkg.vhd
       - sim/apb/tb_apb_tests_pkg.vhd
       - sim/apb/tb_apb.vhd
+    file_type    : vhdlSource-2008
+    depend       :
+      # string_pkg list_length / list_item / list_contains (TESTS_LIST)
+      - ">=asylum:utils:pkg:1.10.0"
+
+  #---------------------------------------
+  # Testbench of jtag_bfm_pkg : IEEE 1149.1 TAP model, one package per
+  # scenario
+  #---------------------------------------
+  sim_jtag:
+    files        :
+      - sim/jtag/tb_jtag_bfm_pkg.vhd
+      - sim/jtag/tb_jtag_tap.vhd
+      - sim/jtag/tb_jtag_reset_trst_pkg.vhd
+      - sim/jtag/tb_jtag_reset_tms_pkg.vhd
+      - sim/jtag/tb_jtag_idcode_pkg.vhd
+      - sim/jtag/tb_jtag_bypass_pkg.vhd
+      - sim/jtag/tb_jtag_user_dr_pkg.vhd
+      - sim/jtag/tb_jtag_idle_pkg.vhd
+      - sim/jtag/tb_jtag_tests_pkg.vhd
+      - sim/jtag/tb_jtag.vhd
     file_type    : vhdlSource-2008
     depend       :
       # string_pkg list_length / list_item / list_contains (TESTS_LIST)
@@ -139,6 +161,115 @@ targets:
     parameters      :
       - TESTS_LIST=timeout
 
+  #---------------------------------------
+  # tb_jtag : compiled once, scenarios chosen at run time (TESTS_LIST,
+  # empty : build and elaboration only), TAP model and BFM configuration
+  # from the generics. Reference configuration (5-bit IR, 40-bit user data
+  # register, TCK 100 ns) : sim_jtag (build only) and one sim_jtag_<test>
+  # target per scenario ; sim_jtag_ir8 (8-bit IR, 7-bit user data register,
+  # TCK 30 ns) runs every scenario. Each target repeats the generics of its
+  # configuration : FuseSoC replaces the parameters list of an inherited
+  # target. Generated.
+  #---------------------------------------
+  sim_jtag: &sim_jtag
+    << : *default
+    description     : Simulation of jtag_bfm_pkg against an IEEE 1149.1 TAP model - build only (scenarios of TESTS_LIST)
+    filesets_append :
+      - sim_jtag
+    toplevel        : tb_jtag
+    parameters      :
+      - TESTS_LIST
+      - IR_WIDTH=5
+      - DR_WIDTH=40
+      - TCK_PERIOD_NS=100
+    default_tool    : ghdl
+    tools :
+      ghdl :
+        analyze_options :
+          - "$(GHDL_ANALYZE_OPTION)"
+          - "-Wall"
+          - "-frelaxed"
+        run_options     :
+          - "$(GHDL_RUN_OPTION)"
+          - "--ieee-asserts=disable"
+
+  #---------------------------------------
+  sim_jtag_reset_trst:
+  #---------------------------------------
+    << : *sim_jtag
+    description     : Simulation of jtag_bfm_pkg - TRST pulse then TMS reset, IDCODE selected
+    parameters      :
+      - TESTS_LIST=reset_trst
+      - IR_WIDTH=5
+      - DR_WIDTH=40
+      - TCK_PERIOD_NS=100
+
+  #---------------------------------------
+  sim_jtag_reset_tms:
+  #---------------------------------------
+    << : *sim_jtag
+    description     : Simulation of jtag_bfm_pkg - reset by TMS only (no TRST pulse), IDCODE selected
+    parameters      :
+      - TESTS_LIST=reset_tms
+      - IR_WIDTH=5
+      - DR_WIDTH=40
+      - TCK_PERIOD_NS=100
+
+  #---------------------------------------
+  sim_jtag_idcode:
+  #---------------------------------------
+    << : *sim_jtag
+    description     : Simulation of jtag_bfm_pkg - IDCODE read, don't care bits, mismatch of jtag_check_dr
+    parameters      :
+      - TESTS_LIST=idcode
+      - IR_WIDTH=5
+      - DR_WIDTH=40
+      - TCK_PERIOD_NS=100
+
+  #---------------------------------------
+  sim_jtag_bypass:
+  #---------------------------------------
+    << : *sim_jtag
+    description     : Simulation of jtag_bfm_pkg - BYPASS and undecoded opcode, one bit delay
+    parameters      :
+      - TESTS_LIST=bypass
+      - IR_WIDTH=5
+      - DR_WIDTH=40
+      - TCK_PERIOD_NS=100
+
+  #---------------------------------------
+  sim_jtag_user_dr:
+  #---------------------------------------
+    << : *sim_jtag
+    description     : Simulation of jtag_bfm_pkg - wide user data register, IR then DR scans
+    parameters      :
+      - TESTS_LIST=user_dr
+      - IR_WIDTH=5
+      - DR_WIDTH=40
+      - TCK_PERIOD_NS=100
+
+  #---------------------------------------
+  sim_jtag_idle:
+  #---------------------------------------
+    << : *sim_jtag
+    description     : Simulation of jtag_bfm_pkg - number of TCK cycles of each procedure, idle cycles
+    parameters      :
+      - TESTS_LIST=idle
+      - IR_WIDTH=5
+      - DR_WIDTH=40
+      - TCK_PERIOD_NS=100
+
+  #---------------------------------------
+  sim_jtag_ir8:
+  #---------------------------------------
+    << : *sim_jtag
+    description     : Simulation of jtag_bfm_pkg, 8-bit IR, 7-bit user data register, TCK 30 ns, every scenario
+    parameters      :
+      - TESTS_LIST=reset_trst,reset_tms,idcode,bypass,user_dr,idle
+      - IR_WIDTH=8
+      - DR_WIDTH=7
+      - TCK_PERIOD_NS=30
+
 #=========================================
 parameters :
 #=========================================
@@ -146,4 +277,25 @@ parameters :
   TESTS_LIST :
     description : Scenarios of the testbench, separated by ',' (empty, build and elaboration only)
     datatype    : str
+    paramtype   : generic
+
+  #---------------------------------------
+  # Generics of tb_jtag (sim_jtag*)
+  #---------------------------------------
+  IR_WIDTH :
+    description : Width of the instruction register of the TAP model (config.ir_width of the BFM)
+    datatype    : int
+    default     : 5
+    paramtype   : generic
+
+  DR_WIDTH :
+    description : Width of the user data register of the TAP model
+    datatype    : int
+    default     : 40
+    paramtype   : generic
+
+  TCK_PERIOD_NS :
+    description : Period of TCK (ns, even, config.tck_period of the BFM)
+    datatype    : int
+    default     : 100
     paramtype   : generic
