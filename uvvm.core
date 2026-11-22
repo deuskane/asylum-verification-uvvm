@@ -1,0 +1,46 @@
+CAPI=2:
+
+#-----------------------------------------------------------------------------
+# Title      : uvvm Core file
+# Project    : Asylum
+#-----------------------------------------------------------------------------
+# File       : uvvm.core
+# Author     : mrosiere
+#-----------------------------------------------------------------------------
+# Description: Library of UVVM BFMs for the Asylum testbenches, in the form
+#              of UVVM Light : one core, one VHDL library (asylum_uvvm),
+#              one package per BFM in src_bfm/, BFMs only (no VVC)
+#-----------------------------------------------------------------------------
+# Copyright (c) 2026
+#-----------------------------------------------------------------------------
+# Revisions  :
+# Date        Version  Author   Description
+# 2026-11-22  1.0.0    mrosiere Created
+#-----------------------------------------------------------------------------
+
+name        : asylum:verification:uvvm:1.0.0
+description : UVVM BFMs of the Asylum testbenches
+
+#=========================================
+filesets:
+#=========================================
+
+  #---------------------------------------
+  src_bfm:
+  #---------------------------------------
+    file_type    : vhdlSource-2008
+    logical_name : asylum_uvvm
+    depend       :
+      - bitvis:verification:uvvm
+
+#=========================================
+targets:
+#=========================================
+
+  #---------------------------------------
+  default: &default
+  #---------------------------------------
+    description     : Library only (no toplevel), used as a dependency
+    filesets        :
+      - src_bfm
+    default_tool    : ghdl
