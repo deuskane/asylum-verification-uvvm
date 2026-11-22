@@ -1,3 +1,3 @@
 FILE_CORE	?= uvvm.core
-TARGET          ?= default
+TARGET          ?= sim_apb
 TOOL		?= ghdl
