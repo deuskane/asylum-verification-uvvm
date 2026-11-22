@@ -16,9 +16,11 @@ CAPI=2:
 # Revisions  :
 # Date        Version  Author   Description
 # 2026-11-22  1.0.0    mrosiere Created
+# 2026-11-22  1.1.0    mrosiere jtag_bfm_pkg : jtag_trst, Capture-IR monitor
+#                               jtag_ir_capture_monitor
 #-----------------------------------------------------------------------------
 
-name        : asylum:verification:uvvm:1.0.0
+name        : asylum:verification:uvvm:1.1.0
 description : UVVM BFMs of the Asylum testbenches
 
 #=========================================
