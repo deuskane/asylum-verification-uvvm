@@ -18,9 +18,11 @@ CAPI=2:
 # 2026-11-22  1.0.0    mrosiere Created
 # 2026-11-22  1.1.0    mrosiere jtag_bfm_pkg : jtag_trst, Capture-IR monitor
 #                               jtag_ir_capture_monitor
+# 2026-11-23  1.2.0    mrosiere jtag_bfm_pkg : chain of TAPs (head_ir,
+#                               tail_ir, head_dr, tail_dr)
 #-----------------------------------------------------------------------------
 
-name        : asylum:verification:uvvm:1.1.0
+name        : asylum:verification:uvvm:1.2.0
 description : UVVM BFMs of the Asylum testbenches
 
 #=========================================
