@@ -75,6 +75,10 @@ filesets:
       - sim/jtag/tb_jtag_trst_pkg.vhd
       - sim/jtag/tb_jtag_ir_capture_pkg.vhd
       - sim/jtag/tb_jtag_ir_capture_error_pkg.vhd
+      - sim/jtag/tb_jtag_chain_idcode_pkg.vhd
+      - sim/jtag/tb_jtag_chain_bypass_pkg.vhd
+      - sim/jtag/tb_jtag_chain_user_dr_pkg.vhd
+      - sim/jtag/tb_jtag_chain_ir_capture_pkg.vhd
       - sim/jtag/tb_jtag_tests_pkg.vhd
       - sim/jtag/tb_jtag.vhd
     file_type    : vhdlSource-2008
@@ -172,9 +176,10 @@ targets:
   # from the generics. Reference configuration (5-bit IR, 40-bit user data
   # register, TCK 100 ns) : sim_jtag (build only) and one sim_jtag_<test>
   # target per scenario ; sim_jtag_ir8 (8-bit IR, 7-bit user data register,
-  # TCK 30 ns) runs every scenario. Each target repeats the generics of its
-  # configuration : FuseSoC replaces the parameters list of an inherited
-  # target. Generated.
+  # TCK 30 ns) runs every scenario. Chain of 3 TAPs (MODEL chain) :
+  # sim_jtag_chain (build only) and one sim_jtag_chain_<test> target per
+  # scenario. Each target repeats the generics of its configuration :
+  # FuseSoC replaces the parameters list of an inherited target. Generated.
   #---------------------------------------
   sim_jtag: &sim_jtag
     << : *default
@@ -308,6 +313,56 @@ targets:
       - DR_WIDTH=7
       - TCK_PERIOD_NS=30
 
+  #---------------------------------------
+  sim_jtag_chain:
+  #---------------------------------------
+    << : *sim_jtag
+    description     : Simulation of jtag_bfm_pkg against a chain of 3 TAP models - build only (scenarios of TESTS_LIST)
+    parameters      :
+      - TESTS_LIST
+      - MODEL=chain
+      - TCK_PERIOD_NS=100
+
+  #---------------------------------------
+  sim_jtag_chain_idcode:
+  #---------------------------------------
+    << : *sim_jtag
+    description     : Simulation of jtag_bfm_pkg, chain of 3 TAPs - IDCODE of each TAP, the others in BYPASS
+    parameters      :
+      - TESTS_LIST=chain_idcode
+      - MODEL=chain
+      - TCK_PERIOD_NS=100
+
+  #---------------------------------------
+  sim_jtag_chain_bypass:
+  #---------------------------------------
+    << : *sim_jtag
+    description     : Simulation of jtag_bfm_pkg, chain of 3 TAPs - BYPASS of the chain and of each TAP
+    parameters      :
+      - TESTS_LIST=chain_bypass
+      - MODEL=chain
+      - TCK_PERIOD_NS=100
+
+  #---------------------------------------
+  sim_jtag_chain_user_dr:
+  #---------------------------------------
+    << : *sim_jtag
+    description     : Simulation of jtag_bfm_pkg, chain of 3 TAPs - user data register of each TAP, then the whole chain
+    parameters      :
+      - TESTS_LIST=chain_user_dr
+      - MODEL=chain
+      - TCK_PERIOD_NS=100
+
+  #---------------------------------------
+  sim_jtag_chain_ir_capture:
+  #---------------------------------------
+    << : *sim_jtag
+    description     : Simulation of jtag_bfm_pkg, chain of 3 TAPs - Capture-IR monitors of the chain and of one TAP, wrong head_ir
+    parameters      :
+      - TESTS_LIST=chain_ir_capture
+      - MODEL=chain
+      - TCK_PERIOD_NS=100
+
 #=========================================
 parameters :
 #=========================================
@@ -336,4 +391,10 @@ parameters :
     description : Period of TCK (ns, even, config.tck_period of the BFM)
     datatype    : int
     default     : 100
+    paramtype   : generic
+
+  MODEL :
+    description : TAP models, single (one TAP) or chain (3 TAPs)
+    datatype    : str
+    default     : single
     paramtype   : generic

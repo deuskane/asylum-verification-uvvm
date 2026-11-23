@@ -10,8 +10,9 @@
 -- Standard   : VHDL'08
 -------------------------------------------------------------------------------
 -- Description:
---  Scenarios of tb_jtag : names (valid items of TESTS_LIST) and dispatch
---  (run_test) to the package of each scenario (tb_jtag_<name>_pkg).
+--  Scenarios of tb_jtag : names (valid items of TESTS_LIST for each MODEL)
+--  and dispatch (run_test) to the package of each scenario
+--  (tb_jtag_<name>_pkg).
 -------------------------------------------------------------------------------
 -- Copyright (c) 2026
 -------------------------------------------------------------------------------
@@ -19,6 +20,8 @@
 -- Date        Version  Author   Description
 -- 2026-11-22  1.0      mrosiere Created
 -- 2026-11-22  1.1      mrosiere trst, ir_capture, ir_capture_error
+-- 2026-11-23  1.2      mrosiere chain_idcode, chain_bypass, chain_user_dr,
+--                               chain_ir_capture (MODEL "chain")
 -------------------------------------------------------------------------------
 
 library ieee;
@@ -37,8 +40,10 @@ use     work.tb_jtag_bfm_pkg.all;
 
 package tb_jtag_tests_pkg is
 
-  -- Names of the scenarios (valid items of TESTS_LIST)
-  constant C_TESTS : string := "reset_trst,reset_tms,idcode,bypass,user_dr,idle,trst,ir_capture,ir_capture_error";
+  -- Names of the scenarios (valid items of TESTS_LIST) : one TAP (MODEL
+  -- "single"), chain of TAPs (MODEL "chain")
+  constant C_TESTS       : string := "reset_trst,reset_tms,idcode,bypass,user_dr,idle,trst,ir_capture,ir_capture_error";
+  constant C_TESTS_CHAIN : string := "chain_idcode,chain_bypass,chain_user_dr,chain_ir_capture";
 
   -- Run the scenario name
   procedure run_test(
@@ -47,7 +52,8 @@ package tb_jtag_tests_pkg is
     signal   tap_state   : in    tap_state_t;
     signal   trst_cnt    : in    natural;
     signal   tck_cnt     : in    natural;
-    signal   capture_err : out   std_logic;
+    signal   capture_err : out   std_logic_vector;
+    signal   tap_ir      : in    integer_vector;
     constant config      : in    t_jtag_bfm_config;
     constant dr_width    : in    positive
     );
@@ -62,7 +68,8 @@ package body tb_jtag_tests_pkg is
     signal   tap_state   : in    tap_state_t;
     signal   trst_cnt    : in    natural;
     signal   tck_cnt     : in    natural;
-    signal   capture_err : out   std_logic;
+    signal   capture_err : out   std_logic_vector;
+    signal   tap_ir      : in    integer_vector;
     constant config      : in    t_jtag_bfm_config;
     constant dr_width    : in    positive
     ) is
@@ -94,6 +101,18 @@ package body tb_jtag_tests_pkg is
     elsif string_eq(name, "ir_capture_error")
     then
       work.tb_jtag_ir_capture_error_pkg.run(jtag_if, tap_state, capture_err, config);
+    elsif string_eq(name, "chain_idcode")
+    then
+      work.tb_jtag_chain_idcode_pkg.run    (jtag_if, tap_state, tap_ir, config);
+    elsif string_eq(name, "chain_bypass")
+    then
+      work.tb_jtag_chain_bypass_pkg.run    (jtag_if, tap_state, tap_ir, config);
+    elsif string_eq(name, "chain_user_dr")
+    then
+      work.tb_jtag_chain_user_dr_pkg.run   (jtag_if, tap_state, tap_ir, config);
+    elsif string_eq(name, "chain_ir_capture")
+    then
+      work.tb_jtag_chain_ir_capture_pkg.run(jtag_if, tap_state, capture_err, config);
     else
       alert(TB_ERROR, "Unknown test " & name, C_TB_SCOPE);
     end if;
