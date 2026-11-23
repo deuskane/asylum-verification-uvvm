@@ -16,12 +16,13 @@
 --  - instruction register of IR_WIDTH bits, Capture-IR loads "0...01"
 --    ("10...01", MSB set, when capture_error_i = '1' : negative test of
 --    jtag_ir_capture_monitor), IDCODE selected in Test-Logic-Reset,
---  - data registers : IDCODE (C_IDCODE), BYPASS (1 bit, capture 0), a user
+--  - data registers : IDCODE (generic IDCODE), BYPASS (1 bit, capture 0), a user
 --    register of DR_WIDTH bits (captures its value, updated in Update-DR,
 --    cleared by arst_b_i only),
 --  - TMS and TDI sampled on the rising edge of TCK, TDO changed on the
 --    falling edge ('Z' out of Shift-IR / Shift-DR),
---  - state_o : state of the TAP controller, for the checks of the testbench.
+--  - state_o, ir_o : state of the TAP controller and instruction, for the
+--    checks of the testbench.
 -------------------------------------------------------------------------------
 -- Copyright (c) 2026
 -------------------------------------------------------------------------------
@@ -29,6 +30,7 @@
 -- Date        Version  Author   Description
 -- 2026-11-22  1.0      mrosiere Created
 -- 2026-11-22  1.1      mrosiere capture_error_i
+-- 2026-11-23  1.2      mrosiere IDCODE generic, ir_o (chain of TAPs)
 -------------------------------------------------------------------------------
 
 library ieee;
@@ -44,6 +46,7 @@ entity tb_jtag_tap is
   generic (
     IR_WIDTH        : positive := 5                                  -- Width of the instruction register (>= 2)
    ;DR_WIDTH        : positive := 40                                 -- Width of the user data register
+   ;IDCODE          : std_logic_vector(32-1 downto 0) := C_IDCODE    -- Value of the IDCODE register
   );
   port (
     -- Power-on reset
@@ -56,8 +59,9 @@ entity tb_jtag_tap is
    ;tdo_o           : out std_logic
     -- Capture-IR loads a wrong value (MSB set)
    ;capture_error_i : in  std_logic
-    -- State of the TAP controller
+    -- State of the TAP controller and instruction
    ;state_o         : out tap_state_t
+   ;ir_o            : out std_logic_vector(IR_WIDTH-1 downto 0)
   );
 end entity tb_jtag_tap;
 
@@ -139,7 +143,7 @@ begin  -- architecture sim
         when SHIFT_IR   =>
           ir_sr     <= tdi_i & ir_sr(IR_WIDTH-1 downto 1);
         when CAPTURE_DR =>
-          idcode_sr <= C_IDCODE;
+          idcode_sr <= IDCODE;
           bypass_sr <= '0';
           user_sr   <= user;
         when SHIFT_DR   =>
@@ -207,5 +211,6 @@ begin  -- architecture sim
   end process p_user;
 
   state_o <= state;
+  ir_o    <= ir;
 
 end architecture sim;

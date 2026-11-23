@@ -22,6 +22,11 @@
 --  TDO on the falling edge). Vectors are shifted LSB first.
 --  jtag_reset ends in Run-Test/Idle ; every scan starts and ends in
 --  Run-Test/Idle. TCK stays high between two procedures.
+--  Chain of TAPs : one target TAP, the others in BYPASS. As HIR / TIR /
+--  HDR / TDR of SVF, the head bits (config.head_ir / head_dr) are shifted
+--  first : they belong to the TAPs between the target and TDO ; the tail
+--  bits (config.tail_ir / tail_dr) are shifted last : TAPs between TDI and
+--  the target. IR : ones (BYPASS) ; DR : zeros, one bit per TAP in BYPASS.
 -------------------------------------------------------------------------------
 -- Copyright (c) 2026
 -------------------------------------------------------------------------------
@@ -31,6 +36,8 @@
 --                               WardRV_vips (WardRV debug unit)
 -- 2026-11-22  1.1      mrosiere jtag_trst, jtag_ir_capture_monitor (from
 --                               WardRV_vips)
+-- 2026-11-23  1.2      mrosiere Chain of TAPs : head_ir, tail_ir, head_dr,
+--                               tail_dr
 -------------------------------------------------------------------------------
 
 library ieee;
@@ -56,6 +63,10 @@ package jtag_bfm_pkg is
     ir_width                 : positive;      -- Width of the instruction register (>= 2)
     idle_cycles              : natural;       -- Extra Run-Test/Idle cycles at the end of each scan
     trst_enable              : boolean;       -- The DUT has TRST* : jtag_reset pulses trst_b before the TMS sequence, jtag_trst allowed
+    head_ir                  : natural;       -- Chain : IR bits of the TAPs between the target and TDO (shifted first, ones : BYPASS)
+    tail_ir                  : natural;       -- Chain : IR bits of the TAPs between TDI and the target (shifted last, ones : BYPASS)
+    head_dr                  : natural;       -- Chain : number of TAPs between the target and TDO (one BYPASS bit each, shifted first)
+    tail_dr                  : natural;       -- Chain : number of TAPs between TDI and the target (one BYPASS bit each, shifted last)
     match_strictness         : t_match_strictness; -- Matching strictness of std_logic values in jtag_check_dr
     id_for_bfm               : t_msg_id;      -- Message ID of the BFM logs
   end record t_jtag_bfm_config;
@@ -65,6 +76,10 @@ package jtag_bfm_pkg is
     ir_width                 => 5,
     idle_cycles              => 0,
     trst_enable              => true,
+    head_ir                  => 0,
+    tail_ir                  => 0,
+    head_dr                  => 0,
+    tail_dr                  => 0,
     match_strictness         => MATCH_EXACT,
     id_for_bfm               => ID_BFM
     );
@@ -106,8 +121,9 @@ package jtag_bfm_pkg is
     constant config        : in    t_jtag_bfm_config := C_JTAG_BFM_CONFIG_DEFAULT
     );
 
-  -- IR scan of config.ir_width bits ; checks the two LSB of the Capture-IR
-  -- value ("01", IEEE 1149.1)
+  -- IR scan of config.ir_width bits (target TAP), between config.head_ir
+  -- and config.tail_ir ones (BYPASS of the other TAPs) ; checks the two LSB
+  -- of the Capture-IR value of the target ("01", IEEE 1149.1)
   procedure jtag_write_ir(
     constant ir_value      : in    std_logic_vector;
     constant msg           : in    string;
@@ -117,8 +133,10 @@ package jtag_bfm_pkg is
     constant config        : in    t_jtag_bfm_config := C_JTAG_BFM_CONFIG_DEFAULT
     );
 
-  -- DR scan of data_value'length bits : data_value is shifted in, the
-  -- captured value is shifted out to data_out (same length)
+  -- DR scan of data_value'length bits (target TAP), between config.head_dr
+  -- and config.tail_dr zeros (BYPASS bits of the other TAPs) : data_value
+  -- is shifted in, the captured value of the target is shifted out to
+  -- data_out (same length)
   procedure jtag_scan_dr(
     constant data_value    : in    std_logic_vector;
     variable data_out      : out   std_logic_vector;
@@ -144,11 +162,15 @@ package jtag_bfm_pkg is
     );
 
   -- Concurrent procedure (never returns) : follows the TAP controller on TMS
-  -- and TRST*, keeps the first config.ir_width bits shifted out of TDO in
-  -- Shift-IR and compares them with expected (zero extended to
+  -- and TRST*, keeps the config.ir_width bits shifted out of TDO in
+  -- Shift-IR after the config.head_ir first ones (Capture-IR value of the
+  -- target TAP) and compares them with expected (zero extended to
   -- config.ir_width, "01" : "0...01") when the IR scan reaches Update-IR.
-  -- A longer scan is checked on its first config.ir_width bits ; a shorter
-  -- one fails (the bits not shifted out stay 'U'). One => OK log per scan
+  -- A longer scan is checked on these bits only (config.tail_ir is not
+  -- used) ; a shorter one fails (the bits not shifted out stay 'U'). One
+  -- => OK log per scan. Whole chain : ir_width = sum of the IR widths,
+  -- head_ir = 0, expected = Capture-IR values of the TAPs, TDO side in the
+  -- LSB
   procedure jtag_ir_capture_monitor(
     signal   jtag_if       : in    t_jtag_if;
     constant expected      : in    std_logic_vector  := "01";
@@ -194,7 +216,8 @@ package body jtag_bfm_pkg is
   end procedure jtag_clock;
 
   -----------------------------------------------------------------------------
-  -- IR scan (ir = true) or DR scan, from Run-Test/Idle to Run-Test/Idle
+  -- IR scan (ir = true) or DR scan, from Run-Test/Idle to Run-Test/Idle, of
+  -- the target TAP of the chain
   -----------------------------------------------------------------------------
   procedure jtag_scan(
     constant ir            : in    boolean;
@@ -207,7 +230,23 @@ package body jtag_bfm_pkg is
     variable v_data_out    : std_logic_vector(data_value'length-1 downto 0);
     variable v_tms         : std_logic;
     variable v_tdo         : std_logic;
+    variable v_head        : natural;    -- Bits of the TAPs between the target and TDO
+    variable v_tail        : natural;    -- Bits of the TAPs between TDI and the target
+    variable v_pad         : std_logic;  -- Value shifted into the other TAPs
+    variable v_last        : natural;
   begin
+    if ir
+    then
+      v_head := config.head_ir;
+      v_tail := config.tail_ir;
+      v_pad  := '1';  -- BYPASS (all zeros is EXTEST)
+    else
+      v_head := config.head_dr;
+      v_tail := config.tail_dr;
+      v_pad  := '0';
+    end if;
+    v_last := v_head + v_data_value'length + v_tail - 1;
+
     -- Run-Test/Idle -> Select-DR-Scan (-> Select-IR-Scan) -> Capture -> Shift
     jtag_clock('1', '0', v_tdo, jtag_if, config);
     if ir
@@ -217,10 +256,17 @@ package body jtag_bfm_pkg is
     jtag_clock('0', '0', v_tdo, jtag_if, config);
     jtag_clock('0', '0', v_tdo, jtag_if, config);
 
-    -- Shift, LSB first, the last bit with TMS = 1 (-> Exit1)
-    for i in 0 to v_data_value'length-1 loop
-      v_tms := '1' when i = v_data_value'length-1 else '0';
-      jtag_clock(v_tms, v_data_value(i), v_data_out(i), jtag_if, config);
+    -- Shift, LSB first : the head bits, the bits of the target, the tail
+    -- bits ; the last bit with TMS = 1 (-> Exit1)
+    for i in 0 to v_last loop
+      v_tms := '1' when i = v_last else '0';
+      if ((i >= v_head) and
+          (i <  v_head + v_data_value'length))
+      then
+        jtag_clock(v_tms, v_data_value(i-v_head), v_data_out(i-v_head), jtag_if, config);
+      else
+        jtag_clock(v_tms, v_pad, v_tdo, jtag_if, config);
+      end if;
     end loop;
 
     -- Exit1 -> Update -> Run-Test/Idle, then the idle cycles
@@ -409,7 +455,7 @@ package body jtag_bfm_pkg is
     variable v_tms      : std_logic;
     variable v_expected : std_logic_vector(config.ir_width-1 downto 0);
     variable v_capture  : std_logic_vector(config.ir_width-1 downto 0);
-    variable v_bits     : natural     := 0;  -- Bits shifted out since Capture-IR
+    variable v_bits     : natural     := 0;  -- Bits shifted out since Capture-IR (head bits included)
   begin
     v_expected := normalize_and_check(expected, v_expected, ALLOW_NARROWER, "expected", "config.ir_width", proc_call);
     loop
@@ -418,12 +464,14 @@ package body jtag_bfm_pkg is
       then
         v_state := TEST_LOGIC_RESET;
       else
-        -- Shift-IR : TDO is the next bit of the captured value, LSB first
+        -- Shift-IR : TDO is the next bit of the captured value, LSB first,
+        -- after the head bits
         if v_state = SHIFT_IR
         then
-          if v_bits < config.ir_width
+          if ((v_bits >= config.head_ir) and
+              (v_bits <  config.head_ir + config.ir_width))
           then
-            v_capture(v_bits) := jtag_if.tdo;
+            v_capture(v_bits-config.head_ir) := jtag_if.tdo;
           end if;
           v_bits := v_bits + 1;
         end if;

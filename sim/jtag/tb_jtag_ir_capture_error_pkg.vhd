@@ -25,6 +25,7 @@
 -- Revisions  :
 -- Date        Version  Author   Description
 -- 2026-11-22  1.0      mrosiere Created
+-- 2026-11-23  1.1      mrosiere capture_err : one bit per TAP (bit 0)
 -------------------------------------------------------------------------------
 
 library ieee;
@@ -45,7 +46,7 @@ package tb_jtag_ir_capture_error_pkg is
   procedure run(
     signal   jtag_if       : inout t_jtag_if;
     signal   tap_state     : in    tap_state_t;
-    signal   capture_err   : out   std_logic;
+    signal   capture_err   : out   std_logic_vector;
     constant config        : in    t_jtag_bfm_config
     );
 
@@ -56,7 +57,7 @@ package body tb_jtag_ir_capture_error_pkg is
   procedure run(
     signal   jtag_if       : inout t_jtag_if;
     signal   tap_state     : in    tap_state_t;
-    signal   capture_err   : out   std_logic;
+    signal   capture_err   : out   std_logic_vector;
     constant config        : in    t_jtag_bfm_config
     ) is
     variable v_short       : t_jtag_bfm_config := config;
@@ -69,12 +70,12 @@ package body tb_jtag_ir_capture_error_pkg is
     tb_reset("Reset", jtag_if, tap_state, config);
 
     -- Capture-IR loads "10...01" : one alert of the monitor
-    capture_err <= '1';
+    capture_err(0) <= '1';
     increment_expected_alerts_and_stop_limit(ERROR, 1, "Wrong Capture-IR value", C_TB_SCOPE);
     v_errors := get_alert_counter(ERROR);
     tb_write_ir(C_IR_IDCODE, "Wrong Capture-IR value", jtag_if, tap_state, config);
     check_value(get_alert_counter(ERROR), v_errors+1, TB_ERROR, "One alert of the monitor on a wrong Capture-IR value", C_TB_SCOPE);
-    capture_err <= '0';
+    capture_err(0) <= '0';
 
     -- Correct value again : no alert
     tb_write_ir(C_IR_IDCODE, "IDCODE", jtag_if, tap_state, config);

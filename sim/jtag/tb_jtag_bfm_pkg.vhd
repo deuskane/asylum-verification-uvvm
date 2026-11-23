@@ -15,6 +15,8 @@
 --  the TAP model, states of the TAP controller, JTAG procedures through the
 --  BFM, each one followed by a check of the state of the TAP (Run-Test/Idle,
 --  Test-Logic-Reset after jtag_trst), TCK cycles with a given TMS sequence.
+--  Chain of TAPs (MODEL "chain") : TAPs of the chain, BFM configuration
+--  with one TAP as target, check of the instruction of every TAP.
 -------------------------------------------------------------------------------
 -- Copyright (c) 2026
 -------------------------------------------------------------------------------
@@ -22,6 +24,7 @@
 -- Date        Version  Author   Description
 -- 2026-11-22  1.0      mrosiere Created
 -- 2026-11-22  1.1      mrosiere tb_trst, tb_tms
+-- 2026-11-23  1.2      mrosiere Chain of TAPs
 -------------------------------------------------------------------------------
 
 library ieee;
@@ -50,8 +53,41 @@ package tb_jtag_bfm_pkg is
                        SELECT_DR_SCAN, CAPTURE_DR, SHIFT_DR, EXIT1_DR, PAUSE_DR, EXIT2_DR, UPDATE_DR,
                        SELECT_IR_SCAN, CAPTURE_IR, SHIFT_IR, EXIT1_IR, PAUSE_IR, EXIT2_IR, UPDATE_IR);
 
+  -- Chain of tb_jtag (MODEL "chain") : TDI -> TAP 0 -> TAP 1 -> TAP 2 -> TDO,
+  -- an IR width, an IDCODE and a user data register width per TAP. The
+  -- Capture-IR monitor of the target TAP checks C_CHAIN_MONITOR_TAP
+  constant C_CHAIN_NB_TAP      : positive := 3;
+  constant C_CHAIN_IR_WIDTH    : integer_vector(0 to C_CHAIN_NB_TAP-1) := (8, 5, 4);
+  constant C_CHAIN_DR_WIDTH    : integer_vector(0 to C_CHAIN_NB_TAP-1) := (12, 33, 3);
+  type     idcode_array_t is array (natural range <>) of std_logic_vector(32-1 downto 0);
+  constant C_CHAIN_IDCODE      : idcode_array_t(0 to C_CHAIN_NB_TAP-1) := (x"1A2B3C4D", x"2C4E6A8B", x"3E5D7C9F");
+  constant C_CHAIN_MONITOR_TAP : natural  := 1;
+
   -- Opcode of BYPASS (all ones)
   function ir_bypass(config : t_jtag_bfm_config) return natural;
+
+  -- Configuration of the BFM with the TAP tap of the chain as target : head
+  -- = the TAPs after it (TDO side), tail = the TAPs before it (TDI side)
+  function chain_config(config : t_jtag_bfm_config; tap : natural) return t_jtag_bfm_config;
+
+  -- Configuration of the BFM with the whole chain as one TAP (IR of
+  -- C_CHAIN_IR_WIDTH bits per TAP, no head / tail bits)
+  function chain_whole_config(config : t_jtag_bfm_config) return t_jtag_bfm_config;
+
+  -- Value of the whole chain IR with opcode in every TAP (TAP 0 in the MSB)
+  function chain_opcode(opcode : natural) return natural;
+
+  -- Capture-IR value of the whole chain ("0...01" per TAP, TAP 0 in the MSB)
+  function chain_ir_capture return std_logic_vector;
+
+  -- Instruction of every TAP of the chain : opcode for the target, BYPASS
+  -- (all ones) for the others
+  procedure check_chain_ir(
+    signal   tap_ir       : in    integer_vector;
+    constant target       : in    natural;
+    constant opcode       : in    natural;
+    constant msg          : in    string
+    );
 
   -- JTAG procedures through the BFM, then a check of the state of the TAP
   -- (Run-Test/Idle)
@@ -122,6 +158,67 @@ package body tb_jtag_bfm_pkg is
   begin
     return 2**config.ir_width-1;
   end function ir_bypass;
+
+  function chain_config(config : t_jtag_bfm_config; tap : natural) return t_jtag_bfm_config is
+    variable v_config : t_jtag_bfm_config := config;
+  begin
+    v_config.ir_width := C_CHAIN_IR_WIDTH(tap);
+    v_config.head_ir  := 0;
+    v_config.tail_ir  := 0;
+    for i in 0 to C_CHAIN_NB_TAP-1 loop
+      if i > tap
+      then
+        v_config.head_ir := v_config.head_ir + C_CHAIN_IR_WIDTH(i);
+      elsif i < tap
+      then
+        v_config.tail_ir := v_config.tail_ir + C_CHAIN_IR_WIDTH(i);
+      end if;
+    end loop;
+    v_config.head_dr  := C_CHAIN_NB_TAP-1-tap;
+    v_config.tail_dr  := tap;
+    return v_config;
+  end function chain_config;
+
+  function chain_whole_config(config : t_jtag_bfm_config) return t_jtag_bfm_config is
+    variable v_config : t_jtag_bfm_config := chain_config(config, 0);
+  begin
+    v_config.ir_width := v_config.ir_width + v_config.head_ir;
+    v_config.head_ir  := 0;
+    v_config.head_dr  := 0;
+    return v_config;
+  end function chain_whole_config;
+
+  function chain_opcode(opcode : natural) return natural is
+    variable v_opcode : natural := 0;
+  begin
+    for i in 0 to C_CHAIN_NB_TAP-1 loop
+      v_opcode := v_opcode * 2**C_CHAIN_IR_WIDTH(i) + opcode;
+    end loop;
+    return v_opcode;
+  end function chain_opcode;
+
+  function chain_ir_capture return std_logic_vector is
+    constant C_WIDTH : natural := chain_whole_config(C_JTAG_BFM_CONFIG_DEFAULT).ir_width;
+  begin
+    return std_logic_vector(to_unsigned(chain_opcode(1), C_WIDTH));
+  end function chain_ir_capture;
+
+  procedure check_chain_ir(
+    signal   tap_ir       : in    integer_vector;
+    constant target       : in    natural;
+    constant opcode       : in    natural;
+    constant msg          : in    string
+    ) is
+  begin
+    for i in 0 to C_CHAIN_NB_TAP-1 loop
+      if i = target
+      then
+        check_value(tap_ir(i), opcode, ERROR, "IR of TAP " & to_string(i) & " (target) after " & msg, C_TB_SCOPE);
+      else
+        check_value(tap_ir(i), 2**C_CHAIN_IR_WIDTH(i)-1, ERROR, "IR of TAP " & to_string(i) & " (BYPASS) after " & msg, C_TB_SCOPE);
+      end if;
+    end loop;
+  end procedure check_chain_ir;
 
   procedure check_run_test_idle(
     constant msg          : in    string;

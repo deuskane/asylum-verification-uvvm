@@ -8,6 +8,11 @@ sim_apb_wait_states       : Simulation of apb_bfm_pkg - 1, 3 and max_wait_cycles
 sim_apb_write_read        : Simulation of apb_bfm_pkg - write then read back, don't care bits, mismatch of apb_check
 sim_jtag                  : Simulation of jtag_bfm_pkg against an IEEE 1149.1 TAP model - build only (scenarios of TESTS_LIST)
 sim_jtag_bypass           : Simulation of jtag_bfm_pkg - BYPASS and undecoded opcode, one bit delay
+sim_jtag_chain            : Simulation of jtag_bfm_pkg against a chain of 3 TAP models - build only (scenarios of TESTS_LIST)
+sim_jtag_chain_bypass     : Simulation of jtag_bfm_pkg, chain of 3 TAPs - BYPASS of the chain and of each TAP
+sim_jtag_chain_idcode     : Simulation of jtag_bfm_pkg, chain of 3 TAPs - IDCODE of each TAP, the others in BYPASS
+sim_jtag_chain_ir_capture : Simulation of jtag_bfm_pkg, chain of 3 TAPs - Capture-IR monitors of the chain and of one TAP, wrong head_ir
+sim_jtag_chain_user_dr    : Simulation of jtag_bfm_pkg, chain of 3 TAPs - user data register of each TAP, then the whole chain
 sim_jtag_idcode           : Simulation of jtag_bfm_pkg - IDCODE read, don't care bits, mismatch of jtag_check_dr
 sim_jtag_idle             : Simulation of jtag_bfm_pkg - number of TCK cycles of each procedure, idle cycles
 sim_jtag_ir8              : Simulation of jtag_bfm_pkg, 8-bit IR, 7-bit user data register, TCK 30 ns, every scenario

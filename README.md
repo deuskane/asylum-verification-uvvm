@@ -124,8 +124,14 @@ The BFM drives the bus on the falling edge of `clk` and samples it on the rising
 | `ir_width`         | 5             | Width of the instruction register (>= 2) |
 | `idle_cycles`      | 0             | Extra Run-Test/Idle cycles at the end of each scan |
 | `trst_enable`      | true          | The DUT has TRST*: `jtag_reset` pulses `trst_b` before the TMS sequence, `jtag_trst` is allowed (`TB_ERROR` otherwise) |
+| `head_ir`          | 0             | Chain: IR bits of the TAPs between the target and TDO, shifted first (ones: BYPASS) |
+| `tail_ir`          | 0             | Chain: IR bits of the TAPs between TDI and the target, shifted last (ones: BYPASS) |
+| `head_dr`          | 0             | Chain: number of TAPs between the target and TDO, one BYPASS bit each, shifted first (zeros) |
+| `tail_dr`          | 0             | Chain: number of TAPs between TDI and the target, one BYPASS bit each, shifted last (zeros) |
 | `match_strictness` | `MATCH_EXACT` | Matching of std_logic values in `jtag_check_dr` |
 | `id_for_bfm`       | `ID_BFM`      | Message ID of the logs |
+
+Build a configuration from `C_JTAG_BFM_CONFIG_DEFAULT` and change the fields you need: a full aggregate must name every field, so it has to change when a field is added. New fields always get a default value that keeps the previous behaviour, and adding one is a MINOR version change: code built from the default constant keeps compiling and behaves the same. In a package, declare the configuration as a deferred constant and compute it in the package body with a small function that starts from `C_JTAG_BFM_CONFIG_DEFAULT` (example: `WardRV_vips` of asylum-processor-WardRV).
 
 ### Procedures
 
@@ -134,11 +140,55 @@ The BFM drives the bus on the falling edge of `clk` and samples it on the rising
 | `jtag_trst`     | `msg, jtag_if [, scope, msg_id_panel, config]` | 0 (2 periods) | TRST* pulse alone: TCK low, TMS = 1, `trst_b` low during one period, then one period of recovery; the TAP is in Test-Logic-Reset. `TB_ERROR` (and no pulse) when `trst_enable` is false |
 | `jtag_reset`    | `msg, jtag_if [, scope, msg_id_panel, config]` | 6 (+ 2 periods with TRST*) | Optional TRST* pulse (`jtag_trst`), 5 TCK with TMS = 1 (Test-Logic-Reset from any state), then Run-Test/Idle |
 | `jtag_idle`     | `num_cycles, msg, jtag_if [, scope, msg_id_panel, config]` | `num_cycles` | TCK cycles in Run-Test/Idle |
-| `jtag_write_ir` | `ir_value, msg, jtag_if [, scope, msg_id_panel, config]` | `ir_width` + 6 + `idle_cycles` | IR scan; checks that the two LSB captured in Capture-IR are `"01"` (IEEE 1149.1) |
-| `jtag_scan_dr`  | `data_value, data_out (out), msg, jtag_if [, scope, msg_id_panel, config]` | width + 5 + `idle_cycles` | DR scan of `data_value'length` bits, returns the captured value |
-| `jtag_check_dr` | `data_value, data_exp, msg, jtag_if [, alert_level, scope, msg_id_panel, config]` | width + 5 + `idle_cycles` | DR scan, then compare the captured value with `data_exp` (`'-'`: don't care bit) |
+| `jtag_write_ir` | `ir_value, msg, jtag_if [, scope, msg_id_panel, config]` | `head_ir` + `ir_width` + `tail_ir` + 6 + `idle_cycles` | IR scan; checks that the two LSB captured in Capture-IR by the target are `"01"` (IEEE 1149.1) |
+| `jtag_scan_dr`  | `data_value, data_out (out), msg, jtag_if [, scope, msg_id_panel, config]` | `head_dr` + width + `tail_dr` + 5 + `idle_cycles` | DR scan of `data_value'length` bits of the target, returns the value it captured |
+| `jtag_check_dr` | `data_value, data_exp, msg, jtag_if [, alert_level, scope, msg_id_panel, config]` | `head_dr` + width + `tail_dr` + 5 + `idle_cycles` | DR scan, then compare the value captured by the target with `data_exp` (`'-'`: don't care bit) |
 
 Call `jtag_reset` first: the scans start and end in Run-Test/Idle. After `jtag_trst` the TAP is in Test-Logic-Reset: one `jtag_idle` cycle moves it to Run-Test/Idle.
+
+### Chain of TAPs
+
+The BFM scans one target TAP at a time; the other TAPs of the chain stay in BYPASS. `head_ir`, `tail_ir`, `head_dr` and `tail_dr` have the meaning of `HIR`, `TIR`, `HDR` and `TDR` in SVF (the format of OpenOCD `svf` and of the vendor tools):
+
+- the **head** is the TDO side: the TAPs between the target and TDO. Their bits are shifted first (LSB of the scan), and they are the first ones out of TDO;
+- the **tail** is the TDI side: the TAPs between TDI and the target. Their bits are shifted last.
+
+```
+        tail (TDI side)                        head (TDO side)
+TDI --> [ TAP ] --> [ TAP ] --> [ target ] --> [ TAP ] --> TDO
+         tail_ir = sum of their IR widths       head_ir = sum of their IR widths
+         tail_dr = number of TAPs               head_dr = number of TAPs
+
+scan (LSB first):  head bits | target bits | tail bits
+```
+
+- `jtag_write_ir` shifts ones in the head and tail IR bits: BYPASS for the other TAPs (never zeros: the all-zero opcode is EXTEST). It checks the `"01"` captured by the target, at its place.
+- `jtag_scan_dr` and `jtag_check_dr` shift zeros in the head and tail DR bits (one BYPASS bit per TAP), and return or check the bits of the target only.
+- `jtag_reset`, `jtag_trst` and `jtag_idle` do not depend on the chain: every TAP sees the same TMS and TRST*.
+- With the four fields at 0 (the default), the scans are those of a single TAP.
+
+Example, the JTAG chain of PicoSoC: `TDI -> user CPU TAP -> supervisor CPU TAP -> injection TAP -> TDO`, 5-bit IR each.
+
+| Target | `head_ir` | `tail_ir` | `head_dr` | `tail_dr` |
+|--------|----------:|----------:|----------:|----------:|
+| user CPU TAP (TDI side)       | 10 | 0  | 2 | 0 |
+| supervisor CPU TAP (middle)   | 5  | 5  | 1 | 1 |
+| injection TAP (TDO side)      | 0  | 10 | 0 | 2 |
+
+```vhdl
+  variable v_config : t_jtag_bfm_config := C_JTAG_BFM_CONFIG_DEFAULT;
+
+  -- Target : supervisor CPU TAP, one TAP on each side
+  v_config.trst_enable := false;
+  v_config.head_ir     := 5;    -- injection TAP
+  v_config.tail_ir     := 5;    -- user CPU TAP
+  v_config.head_dr     := 1;
+  v_config.tail_dr     := 1;
+  jtag_write_ir("00001", "IDCODE of the supervisor CPU", jtag_if, config => v_config);
+  jtag_check_dr(x"00000000", x"10002001", "Read IDCODE", jtag_if, config => v_config);
+```
+
+The same scans in SVF: `HIR 5 TDI (1f); TIR 5 TDI (1f); HDR 1 TDI (0); TDR 1 TDI (0); SIR 5 TDI (01); SDR 32 TDI (00000000) TDO (10002001);`.
 
 ### Capture-IR monitor
 
@@ -146,8 +196,10 @@ Call `jtag_reset` first: the scans start and end in Run-Test/Idle. After `jtag_t
 
 `jtag_write_ir` checks only the two LSB `"01"` that IEEE 1149.1 requires; the monitor checks the whole value that the DUT loads in Capture-IR, for every IR scan of the testbench, whoever drives the bus.
 
-- A scan longer than `config.ir_width` (e.g. other TAPs in the chain) is checked on its first `config.ir_width` bits, the captured value; the next bits are TDI bits shifted through.
-- A scan shorter than `config.ir_width` fails: the bits that were not shifted out stay `'U'`.
+- In a chain, the monitor checks the `config.ir_width` bits that come out of TDO after the first `config.head_ir` bits: the Capture-IR value of the target TAP of its configuration (`tail_ir` is not used). Its configuration is fixed, so it watches one TAP, whatever TAP the BFM scans.
+- To check the whole chain, give the monitor a configuration with `ir_width` = the sum of the IR widths and `head_ir` = 0, and `expected` = the Capture-IR values of every TAP, TDO side in the LSB (e.g. `"00001" & "00001" & "00001"` for three 5-bit TAPs).
+- A scan longer than `head_ir` + `ir_width` is checked on these bits only; the next bits are the other TAPs or TDI bits shifted through.
+- A scan shorter than `head_ir` + `ir_width` fails: the bits that were not shifted out stay `'U'`.
 - The check is made at Update-IR, so a scan may go through Pause-IR.
 
 ### Usage
@@ -181,6 +233,7 @@ One self-checking UVVM testbench per BFM, in `sim/<bfm>/`, against a testbench-o
 
 - `tb_apb`: APB3 slave model `tb_apb_slave` (memory of 256 words, a value derived from the address after the reset, `wait_states` cycles with `pready` low, `pslverr` at one address, `prdata` at `'X'` outside the end of a read) with a protocol checker (setup phase of one cycle, `psel`, `penable`, `paddr`, `pwrite`, `pwdata` held until `pready`).
 - `tb_jtag`: IEEE 1149.1 TAP model `tb_jtag_tap` (16-state controller, `IR_WIDTH`-bit IR, IDCODE, BYPASS, a `DR_WIDTH`-bit user data register, TRST* and power-on reset, a wrong Capture-IR value on request) whose state is checked to be Run-Test/Idle after each procedure (Test-Logic-Reset after `jtag_trst`); monitors: TMS / TDI change only while TCK is low, count of the TRST* pulses and of the TCK edges, and `jtag_ir_capture_monitor` of the BFM, which checks every IR scan of every scenario.
+- `tb_jtag` with `MODEL` = `chain`: `TDI -> TAP 0 -> TAP 1 -> TAP 2 -> TDO`, IR of 8, 5 and 4 bits, a different IDCODE and user data register width (12, 33, 3 bits) per TAP, pull-ups between the TAPs. The instruction of every TAP is checked after each targeted IR scan (the target holds its opcode, the others BYPASS). Two Capture-IR monitors run in every chain scenario: one on the whole chain (`ir_width` 17, `head_ir` 0), one on TAP 1 at its place (`head_ir` 4).
 
 Expected alerts of the BFM procedures (mismatch, `pslverr`, timeout) are raised with severity `WARNING` and counted with `get_alert_counter`, so that a failing count check (`ERROR`) is never hidden by an expected error. The Capture-IR monitor is concurrent, so its severity cannot change with the scenario: its expected alerts stay `ERROR` (`increment_expected_alerts_and_stop_limit`) and their count is checked with `TB_ERROR`. The same rule, the other way round, for the expected `TB_ERROR` of `jtag_trst` (count checked with `ERROR`).
 
@@ -202,10 +255,14 @@ Expected alerts of the BFM procedures (mismatch, `pslverr`, timeout) are raised 
 | `sim_jtag_ir_capture`  | Capture-IR monitor: IR scans checked, TRST* in Shift-IR (the monitor restarts from Test-Logic-Reset), IR scan of `ir_width` + 3 bits | 12 |
 | `sim_jtag_ir_capture_error` | Capture-IR monitor: wrong captured value (MSB set, LSB `"01"`) and IR scan of `ir_width` - 1 bits, one alert each | 7 |
 | `sim_jtag_ir8`         | Every JTAG scenario with an 8-bit IR, a 7-bit user data register and TCK 30 ns | 115 |
+| `sim_jtag_chain_idcode`     | Chain: IDCODE of every TAP after the reset in one scan; each TAP as the target: IDCODE written to it alone (the others stay in BYPASS), read with `jtag_check_dr` and `jtag_scan_dr` | 42 |
+| `sim_jtag_chain_bypass`     | Chain: every TAP in BYPASS (8 bits delayed by 3); each TAP as the target in BYPASS: 1-bit scan (capture 0), 8-bit scan | 48 |
+| `sim_jtag_chain_user_dr`    | Chain: user data register of each TAP written, read back after the scans of the other TAPs, then the whole chain in one scan (every value at its place) | 48 |
+| `sim_jtag_chain_ir_capture` | Chain: wrong Capture-IR value of each TAP (alert of the whole chain monitor, and of the TAP 1 monitor for TAP 1 only); `head_ir` one bit too large: alert of `jtag_write_ir` | 22 |
 
-Checks: number of `=> OK` lines of the log. `sim_apb` and `sim_jtag` build the testbenches only (5-bit IR, 40-bit user data register, TCK 100 ns for `sim_jtag`).
+Checks: number of `=> OK` lines of the log. `sim_apb`, `sim_jtag` and `sim_jtag_chain` build the testbenches only (5-bit IR, 40-bit user data register, TCK 100 ns for `sim_jtag`; chain of 3 TAPs for `sim_jtag_chain`).
 
-The testbenches were validated with mutants of the BFMs (scratch copies, each scenario run alone): penable never set, pready ignored, pslverr not checked, no setup phase, `apb_check` that never fails, timeout one cycle early, reads sent as writes; TDO sampled after TCK fell again, MSB first, wrong TMS on the path to Shift-DR (two places), IR one bit too long or too short, no TRST* pulse, TRST* never released, reset with 2 TMS = 1 only, `idle_cycles` ignored, `jtag_check_dr` that never fails, TMS / TDI changed with the rising edge; `jtag_trst` with a TCK edge, with TMS = 0, without `TB_ERROR` when `trst_enable` is false; a monitor that never alerts, checks only the two LSB, samples TDO in Capture-IR instead of Shift-IR, ignores TRST* (two ways), keeps the last `ir_width` bits instead of the first ones, or does not clear the captured value at Capture-IR. Every one is killed by at least one scenario.
+The testbenches were validated with mutants of the BFMs (scratch copies, each scenario run alone): penable never set, pready ignored, pslverr not checked, no setup phase, `apb_check` that never fails, timeout one cycle early, reads sent as writes; TDO sampled after TCK fell again, MSB first, wrong TMS on the path to Shift-DR (two places), IR one bit too long or too short, no TRST* pulse, TRST* never released, reset with 2 TMS = 1 only, `idle_cycles` ignored, `jtag_check_dr` that never fails, TMS / TDI changed with the rising edge; `jtag_trst` with a TCK edge, with TMS = 0, without `TB_ERROR` when `trst_enable` is false; a monitor that never alerts, checks only the two LSB, samples TDO in Capture-IR instead of Shift-IR, ignores TRST* (two ways), keeps the last `ir_width` bits instead of the first ones, or does not clear the captured value at Capture-IR; chain: head and tail swapped (IR, DR), IR padded with zeros, DR padded with ones, head or tail bits not shifted (IR, DR), DR read value not stripped of the head bits, scan one bit short, a monitor that ignores the chain position or uses `tail_ir`. Every one is killed by at least one scenario.
 
 ```bash
 make sim_jtag_idcode                                   # one target (FuseSoC, GHDL)
