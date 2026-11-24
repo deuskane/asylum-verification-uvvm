@@ -14,6 +14,8 @@
 --  OpenOCD (remote_bitbang adapter) on m_axis, the answers of the DUT on
 --  s_axis back to OpenOCD (always taken), at most one byte each way per
 --  rising edge of clk_i, after the reset (rbb_recv, rbb_send of rbb_pkg).
+--  Unknown answer bits ('U', 'X', 'Z', ...) are sent as 1, the pull-up of
+--  TDO (as rbb_jtag), with a warning giving the byte and the time.
 --  quit_o rises when OpenOCD closes the connection (or never came).
 -------------------------------------------------------------------------------
 -- Copyright (c) 2026
@@ -22,6 +24,8 @@
 -- Date        Version  Author   Description
 -- 2026-11-24  1.0      mrosiere Created from tb_bitbang_openocd
 --                               (asylum-debug-jtag)
+-- 2026-11-24  1.1      mrosiere Unknown answer bits sent as 1 with a
+--                               warning (were sent as 0 : OpenOCD quit)
 -------------------------------------------------------------------------------
 
 library ieee;
@@ -58,6 +62,7 @@ begin  -- architecture sim
 
   p_rbb : process
     variable v_byte : integer;
+    variable v_ans  : std_logic_vector(8-1 downto 0);
   begin
     m_axis_tdata_o <= x"00";
     quit_o         <= '0';
@@ -66,7 +71,16 @@ begin  -- architecture sim
       wait until rising_edge(clk_i);
       if s_axis_tvalid_i = '1'
       then
-        rbb_send(to_integer(unsigned(s_axis_tdata_i)));
+        -- '0' / 'L' : 0, anything else : 1 (the pull-up of TDO)
+        for i in v_ans'range loop
+          v_ans(i) := '0' when to_X01(s_axis_tdata_i(i)) = '0' else '1';
+        end loop;
+        if is_x(s_axis_tdata_i)
+        then
+          report "rbb_axis : answer " & to_string(s_axis_tdata_i) & " at " & to_string(now, ns) &
+                 " has unknown bits, sent as 1 (pull-up of TDO)" severity warning;
+        end if;
+        rbb_send(to_integer(unsigned(v_ans)));
       end if;
       if m_tvalid = '0' or m_axis_tready_i = '1'
       then
