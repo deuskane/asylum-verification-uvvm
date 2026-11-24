@@ -113,6 +113,22 @@ filesets:
       # string_pkg list_length / list_item / list_contains (TESTS_LIST)
       - ">=asylum:utils:pkg:1.10.0"
 
+  #---------------------------------------
+  # Co-simulation of the OpenOCD kit (asylum:verification:openocd) :
+  # OpenOCD against the TAP model of tb_jtag, hooks in rbb/cosim.sh of the
+  # kit
+  #---------------------------------------
+  sim_openocd:
+    files        :
+      - sim/jtag/tb_jtag_bfm_pkg.vhd
+      - sim/jtag/tb_jtag_tap.vhd
+      - sim/rbb/tb_rbb_decoder.vhd
+      - sim/openocd/tb_openocd.vhd
+      - sim/openocd/tap.cfg : {file_type : user, copyto : openocd/tap.cfg}
+    file_type    : vhdlSource-2008
+    depend       :
+      - asylum:verification:openocd
+
 #=========================================
 targets:
 #=========================================
@@ -471,6 +487,60 @@ targets:
     parameters      :
       - TESTS_LIST=errors
 
+  #---------------------------------------
+  # Co-simulation of the OpenOCD kit : OpenOCD 0.12 (remote_bitbang adapter)
+  # runs the checks of sim/openocd/tap.cfg on the TAP model of tb_jtag,
+  # through rbb_jtag (PIN mode) or through rbb_axis and the remote_bitbang
+  # decoder of tb_rbb (BYTE mode). Needs gcc and openocd (hooks run in the
+  # work root).
+  #---------------------------------------
+  sim_openocd_pin: &sim_openocd
+    << : *default
+    description     : Co-simulation of the OpenOCD kit, PIN mode (rbb_jtag, TAP model) - IDCODE, DR scans, TRST, SRST
+    filesets_append :
+      - sim_openocd
+    toplevel        : tb_openocd
+    parameters      :
+      - MODE=pin
+    default_tool    : ghdl
+    tools :
+      ghdl :
+        analyze_options :
+          - "$(GHDL_ANALYZE_OPTION)"
+          - "-Wall"
+          - "-frelaxed"
+        run_options     :
+          - "$(GHDL_RUN_OPTION)"
+          - "--ieee-asserts=disable"
+    hooks :
+      pre_build     : [cosim_build]
+      pre_run       : [cosim_start]
+      post_run      : [cosim_check]
+
+  #---------------------------------------
+  sim_openocd_byte:
+  #---------------------------------------
+    << : *sim_openocd
+    description     : Co-simulation of the OpenOCD kit, BYTE mode (rbb_axis, remote_bitbang decoder, TAP model) - IDCODE, DR scans, TRST, SRST
+    parameters      :
+      - MODE=byte
+
+#=========================================
+scripts:
+#=========================================
+
+  #---------------------------------------
+  # Hooks of sim_openocd_* (cwd = work_root, rbb/cosim.sh of the kit)
+  #---------------------------------------
+  cosim_build :
+    cmd : [bash, rbb/cosim.sh, build]
+
+  cosim_start :
+    cmd : [bash, rbb/cosim.sh, start, openocd/tap.cfg]
+
+  cosim_check :
+    cmd : [bash, rbb/cosim.sh, check]
+
 #=========================================
 parameters :
 #=========================================
@@ -505,4 +575,13 @@ parameters :
     description : TAP models, single (one TAP) or chain (3 TAPs)
     datatype    : str
     default     : single
+    paramtype   : generic
+
+  #---------------------------------------
+  # Generic of tb_openocd (sim_openocd_*)
+  #---------------------------------------
+  MODE :
+    description : Kit mode of tb_openocd, pin (rbb_jtag) or byte (rbb_axis and the remote_bitbang decoder)
+    datatype    : str
+    default     : pin
     paramtype   : generic
