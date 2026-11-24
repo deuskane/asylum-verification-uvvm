@@ -330,7 +330,7 @@ Through a UART (the DUT behind a UART receiver and transmitter): `config.uart` =
   `./cosim.cfg`, `VAR=value` lines written by the testbench, is exported to OpenOCD and GDB. When OpenOCD quits, or is killed (a socket error is a closed connection), the server tells the testbench (`quit_o`, `RBB_CLOSED`), which ends the simulation;
 - `check` (post_run): prints the logs, fails unless the last one (`gdb.log`, else `openocd.log`) has the line `COSIM_PASS` (default `SCENARIO PASS`).
 
-Environment: `RBB_PORT`, `GDB_PORT`, `TCL_PORT`, `COSIM_PASS`, `COSIM_TIMEOUT` (1800 s for OpenOCD or GDB). It needs `gcc`, `openocd` and `gdb-multiarch` (with Python), present in the Asylum CI image. Each target runs in its own container in the CI, so every co-simulation uses the same port; two co-simulations on one host need different `RBB_PORT` values (and the same port in their .cfg).
+Environment: `RBB_PORT`, `GDB_PORT`, `TCL_PORT`, `COSIM_PASS`, `COSIM_TIMEOUT` (1800 s: bound of each wait for a port and of OpenOCD and GDB; OpenOCD and GDB still running at the end are killed). It needs `gcc`, `openocd` and `gdb-multiarch` (with Python), present in the Asylum CI image. Each target runs in its own container in the CI, so every co-simulation uses the same port; two co-simulations on one host need different `RBB_PORT` values (and the same port in their .cfg).
 
 The core of an IP (the .cfg, the GDB script and the testbench stay in the IP):
 
