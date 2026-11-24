@@ -20,15 +20,18 @@
 --                  remote_bitbang decoder of tb_rbb, which drives the TAP.
 --  OpenOCD runs the checks of sim/openocd/tap.cfg (hooks in rbb/cosim.sh of
 --  the kit) ; the testbench checks that OpenOCD used TCK, TRST* and SRST*,
---  the pin changes CLK_DIV cycles apart at least (pin), the answers to 'R'
---  and the LED (byte). End when OpenOCD closes the connection, error after
---  C_TIMEOUT.
+--  that its last TRST* pulse reset the TAP (USER instruction of tap.cfg
+--  before, IDCODE and Test-Logic-Reset after : OpenOCD needs an IR scan
+--  after TRST*, so it cannot see it), the pin changes CLK_DIV cycles apart
+--  at least (pin), the answers to 'R' and the LED (byte). End when OpenOCD
+--  closes the connection, error after C_TIMEOUT.
 -------------------------------------------------------------------------------
 -- Copyright (c) 2026
 -------------------------------------------------------------------------------
 -- Revisions  :
 -- Date        Version  Author   Description
 -- 2026-11-24  1.0      mrosiere Created
+-- 2026-11-24  1.1      mrosiere TRST* checked on the TAP
 -------------------------------------------------------------------------------
 
 library ieee;
@@ -39,6 +42,8 @@ library uvvm_util;
 context uvvm_util.uvvm_util_context;
 
 library asylum_uvvm;
+
+use     work.tb_jtag_bfm_pkg.all;
 
 entity tb_openocd is
   generic (
@@ -66,6 +71,8 @@ architecture sim of tb_openocd is
   signal   trst_b         : std_logic;
   signal   srst_b         : std_logic;
   signal   tdo            : std_logic;
+  signal   tap_state      : tap_state_t;
+  signal   tap_ir         : std_logic_vector(C_IR_WIDTH-1 downto 0);
   signal   blink          : std_logic := '0';
   signal   quit           : std_logic;
 
@@ -168,8 +175,8 @@ begin  -- architecture sim
     ,trst_b_i        => trst_b
     ,tdo_o           => tdo
     ,capture_error_i => '0'
-    ,state_o         => open
-    ,ir_o            => open
+    ,state_o         => tap_state
+    ,ir_o            => tap_ir
     );
 
   tdo <= 'H';
@@ -182,6 +189,8 @@ begin  -- architecture sim
     variable v_trst     : boolean := false;
     variable v_srst     : boolean := false;
     variable v_blink    : boolean := false;
+    variable v_trst_ir  : natural := 0;                    -- Instruction before the last TRST* pulse
+    variable v_trst_rst : boolean := false;                -- The last TRST* pulse reset the TAP
     variable v_last     : time    := 0 ns;
     variable v_min      : time    := time'high;
   begin
@@ -202,6 +211,14 @@ begin  -- architecture sim
       end if;
       v_tck   := v_tck + 1 when rising_edge(tck) else v_tck;
       v_trst  := v_trst  or trst_b = '0';
+      if trst_b'event and trst_b = '0'
+      then
+        v_trst_ir  := to_integer(unsigned(tap_ir));        -- The TAP sees the pulse in the next delta cycles
+      end if;
+      if trst_b'event and trst_b = '1'
+      then
+        v_trst_rst := tap_state = TEST_LOGIC_RESET and to_integer(unsigned(tap_ir)) = C_IR_IDCODE;
+      end if;
       v_srst  := v_srst  or srst_b = '0';
       v_blink := v_blink or blink  = '1';
     end loop;
@@ -211,6 +228,8 @@ begin  -- architecture sim
     check_value(v_tck > 0 , ERROR, "OpenOCD drove TCK", C_SCOPE);
     check_value(v_trst    , ERROR, "OpenOCD asserted TRST*", C_SCOPE);
     check_value(v_srst    , ERROR, "OpenOCD asserted SRST*", C_SCOPE);
+    check_value(v_trst_ir , C_IR_USER, ERROR, "Instruction of the TAP before the last TRST* pulse (USER, tap.cfg)", C_SCOPE);
+    check_value(v_trst_rst, ERROR, "The last TRST* pulse reset the TAP : Test-Logic-Reset, IDCODE instruction", C_SCOPE);
     if MODE = "pin"
     then
       check_value(v_min >= CLK_DIV*C_CLK_PERIOD, ERROR, "Pin changes " & integer'image(CLK_DIV) & " clock cycles apart at least (" & integer'image(v_min / 1 ns) & " ns)", C_SCOPE);
