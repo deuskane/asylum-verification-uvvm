@@ -127,7 +127,7 @@ filesets:
       - sim/openocd/tap.cfg : {file_type : user, copyto : openocd/tap.cfg}
     file_type    : vhdlSource-2008
     depend       :
-      - asylum:verification:openocd
+      - ">=asylum:verification:openocd:1.0.0"
 
 #=========================================
 targets:

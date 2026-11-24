@@ -40,6 +40,7 @@
 -- 2026-11-24  1.0      mrosiere Created from tb_bitbang_bfm_pkg
 --                               (asylum-debug-jtag) and
 --                               tb_PicoSoC_bitbang_pkg (asylum-soc-picosoc)
+-- 2026-11-24  1.1      mrosiere rbb_read : no log of a missing answer
 -------------------------------------------------------------------------------
 
 library ieee;
@@ -375,8 +376,13 @@ package body rbb_bfm_pkg is
   begin
     rbb_command("R", msg, clk, rbb_if, scope, msg_id_panel, config, proc_call);
     wait_answers(C_FIRST, 1, proc_call, msg, answers, scope, config, v_ok);
-    tdo := answers.tdo(0) when v_ok else 'X';
-    log(config.id_for_bfm, proc_call & "=> " & to_string(answers.tdo(0)) & ". " & add_msg_delimiter(msg), scope, msg_id_panel);
+    if v_ok
+    then
+      tdo := answers.tdo(0);
+      log(config.id_for_bfm, proc_call & "=> " & to_string(answers.tdo(0)) & ". " & add_msg_delimiter(msg), scope, msg_id_panel);
+    else
+      tdo := 'X';                                         -- Answer missing : alert of wait_answers
+    end if;
   end procedure rbb_read;
 
   -----------------------------------------------------------------------------
