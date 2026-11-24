@@ -319,6 +319,7 @@ Through a UART (the DUT behind a UART receiver and transmitter): `config.uart` =
 | `rbb_axis.vhd` | `asylum_uvvm` | Entity of the BYTE mode: the bytes of OpenOCD on `m_axis`, the answers of the DUT on `s_axis` (always ready), one byte each way per cycle of `clk_i` at most, after the reset; `quit_o` when OpenOCD closes the connection |
 | `rbb_jtag.vhd` | `asylum_uvvm` | Entity of the PIN mode: `tck_o`, `tms_o`, `tdi_o`, `trst_b_o`, `srst_b_o`, `tdo_i` (`'0'` / `'L'`: 0, anything else: 1, the pull-up of TDO), `quit_o`. Generic `CLK_DIV`: `rbb_tick` every `CLK_DIV` cycles of `clk_i`, so at least `CLK_DIV` cycles between two pin changes (TCK period >= 2 `CLK_DIV` cycles) |
 | `cosim.sh`     | `rbb/cosim.sh` | Hooks of the co-simulation target (below) |
+| `check.tcl`    | `rbb/check.tcl` | Tcl procedures of a .cfg without GDB script (`source rbb/check.tcl` after `init`): `check <name> <got> <exp>` compares a `drscan` result with a value (`OK` / `FAIL` line), `scenario_end` prints `SCENARIO PASS` (or `SCENARIO FAIL`) and shuts OpenOCD down |
 
 `cosim.sh` (cwd = work root):
 
@@ -456,7 +457,7 @@ src_bfm/                BFM packages (library asylum_uvvm)
   jtag_bfm_pkg.vhd      IEEE 1149.1 JTAG master
   rbb_bfm_pkg.vhd       OpenOCD remote_bitbang master
 src_openocd/            co-simulation kit: rbb_server.c, rbb_pkg.vhd, rbb_axis.vhd,
-                        rbb_jtag.vhd (library asylum_uvvm), cosim.sh
+                        rbb_jtag.vhd (library asylum_uvvm), cosim.sh, check.tcl
 sim/apb/                tb_apb: APB slave model, helpers, one package per scenario
 sim/jtag/               tb_jtag: TAP model, helpers, one package per scenario
 sim/rbb/                tb_rbb: remote_bitbang decoder, helpers, one package per scenario

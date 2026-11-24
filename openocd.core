@@ -13,7 +13,8 @@ CAPI=2:
 #              the remote_bitbang bytes, PIN mode for the JTAG pins of a
 #              TAP), its VHPIDIRECT binding rbb_pkg and the testbench
 #              entities rbb_axis (BYTE) and rbb_jtag (PIN) in the library
-#              asylum_uvvm, the hooks cosim.sh. No dependency.
+#              asylum_uvvm, the hooks cosim.sh and the Tcl procedures
+#              check.tcl of the OpenOCD scripts. No dependency.
 #              The kit files are copied to rbb/ in the work root ; the
 #              co-simulation target declares the hook scripts :
 #                cosim_build : [bash, rbb/cosim.sh, build]
@@ -54,6 +55,7 @@ filesets:
     files        :
       - src_openocd/rbb_server.c : {copyto : rbb/rbb_server.c}
       - src_openocd/cosim.sh     : {copyto : rbb/cosim.sh}
+      - src_openocd/check.tcl    : {copyto : rbb/check.tcl}
     file_type    : user
 
 #=========================================
