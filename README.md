@@ -6,7 +6,8 @@
     mk/targets.txt, sim/.
   Sections, in this order:
     badges / title + one-line pitch / Overview / BFMs / one section per BFM
-    (procedures, configuration, usage, timing) / Design Verification /
+    (procedures, configuration, usage, timing) / OpenOCD co-simulation kit
+    (openocd.core, src_openocd/) / Design Verification /
     Repository Layout / License
   Rules:
     - English, short and factual: every statement backed by the sources.
@@ -23,7 +24,7 @@
 
 # Asylum UVVM BFMs
 
-**Small, readable UVVM bus functional models for the protocols UVVM does not cover: an APB3 master and an IEEE 1149.1 JTAG master, each verified against a testbench model.**
+**Small, readable UVVM bus functional models for the protocols UVVM does not cover: an APB3 master, an IEEE 1149.1 JTAG master and an OpenOCD remote_bitbang master, each verified against a testbench model; and the kit that connects OpenOCD to a GHDL simulation.**
 
 Part of the [Asylum project](https://github.com/deuskane/asylum-project), a collection of small IP cores, written to be read and learned from.
 
@@ -33,13 +34,15 @@ Part of the [Asylum project](https://github.com/deuskane/asylum-project), a coll
 2. [BFMs](#bfms)
 3. [APB BFM](#apb-bfm)
 4. [JTAG BFM](#jtag-bfm)
-5. [Design Verification](#design-verification)
-6. [Repository Layout](#repository-layout)
-7. [License](#license)
+5. [remote_bitbang BFM](#remote_bitbang-bfm)
+6. [OpenOCD co-simulation kit](#openocd-co-simulation-kit)
+7. [Design Verification](#design-verification)
+8. [Repository Layout](#repository-layout)
+9. [License](#license)
 
 ## Overview
 
-The Asylum testbenches are written with [UVVM](https://github.com/UVVM/UVVM) (utility library and BFMs). UVVM has no APB and no JTAG VIP, so the Asylum IPs that need them share the BFMs of this library instead of keeping their own copies.
+The Asylum testbenches are written with [UVVM](https://github.com/UVVM/UVVM) (utility library and BFMs). UVVM has no APB, no JTAG and no OpenOCD remote_bitbang VIP, so the Asylum IPs that need them share the BFMs of this library instead of keeping their own copies. For the same reason, the OpenOCD co-simulation kit (a TCP server of the OpenOCD remote_bitbang adapter, its GHDL binding and the hooks of the co-simulation targets) lives here once, in a second small core.
 
 The library has the form of UVVM Light:
 
@@ -56,6 +59,8 @@ Use it in a core:
       - asylum:verification:uvvm
 ```
 
+The co-simulation kit is the core `asylum:verification:openocd` (`openocd.core`, no dependency), see [OpenOCD co-simulation kit](#openocd-co-simulation-kit).
+
 The cores of the Asylum IPs are published in the FuseSoC library [asylum-cores](https://github.com/deuskane/asylum-cores), with the UVVM cores.
 
 ## BFMs
@@ -64,6 +69,7 @@ The cores of the Asylum IPs are published in the FuseSoC library [asylum-cores](
 |-----|---------|----------|------------|
 | APB  | `asylum_uvvm.apb_bfm_pkg`  | AMBA APB3 master, synchronous to the bus clock | `apb_write`, `apb_read`, `apb_check` |
 | JTAG | `asylum_uvvm.jtag_bfm_pkg` | IEEE 1149.1 master, drives TCK itself | `jtag_trst`, `jtag_reset`, `jtag_idle`, `jtag_write_ir`, `jtag_scan_dr`, `jtag_check_dr`; monitor `jtag_ir_capture_monitor` |
+| remote_bitbang | `asylum_uvvm.rbb_bfm_pkg` | The bytes OpenOCD sends to a remote_bitbang JTAG master, on an AXI-Stream or a UART line | `rbb_command`, `rbb_read`, `rbb_tms`, `rbb_reset`, `rbb_idle`, `rbb_write_ir`, `rbb_scan_dr`, `rbb_check_dr`; monitors `rbb_axis_monitor`, `rbb_uart_monitor` |
 
 ## APB BFM
 
@@ -227,12 +233,171 @@ use     asylum_uvvm.jtag_bfm_pkg.all;
 
 The BFM generates TCK. In each TCK cycle, TCK falls and TMS / TDI change, then TDO is sampled just before TCK rises (the TAP samples TMS and TDI on the rising edge and changes TDO on the falling edge). Vectors are shifted LSB first; the last bit is shifted with TMS = 1 (Exit1). TCK stays high between two procedures.
 
+## remote_bitbang BFM
+
+The testbench plays OpenOCD in front of a DUT that decodes the OpenOCD [remote_bitbang](https://openocd.org/doc/html/Debug-Adapter-Configuration.html) byte stream, a JTAG master such as `jtag_bitbang` of asylum-debug-jtag (JTAG over a UART). The procedures send the bytes that the bitbang driver of OpenOCD 0.12 sends, so a DUT that passes them works with OpenOCD.
+
+| Byte | Command | Built by |
+|------|---------|----------|
+| `'0'`..`'7'` | write TCK, TMS, TDI = bits 2, 1, 0 | `rbb_write_cmd(tck, tms, tdi)` |
+| `'R'` | read TDO: the DUT answers `'0'` or `'1'` | `rbb_read` |
+| `'r'`..`'u'` | reset TRST, SRST = bits 1, 0 (1: asserted) | `rbb_reset_cmd(trst, srst)` |
+| `'B'` / `'b'` | LED on / off | `rbb_blink_cmd(led)` |
+
+The scans have the meaning of the [JTAG BFM](#jtag-bfm) scans and take the same `t_jtag_bfm_config` for the chain: `ir_width`, `head_ir`, `tail_ir`, `head_dr`, `tail_dr` (see [Chain of TAPs](#chain-of-taps)), `idle_cycles`, `trst_enable` (`rbb_reset`) and `match_strictness`; `tck_period` is not used (the DUT makes TCK from the bytes).
+
+### Interface, answers and configuration
+
+`t_rbb_if`: `tdata`, `tvalid` (to the DUT), `tready` (from the DUT): the commands as an AXI-Stream; `tx` (to the DUT): the commands as UART frames. `init_rbb_if_signals` returns no command, `tready` at `'Z'` and the UART line idle.
+
+The answers to `'R'` are collected by a concurrent monitor in a `t_rbb_answers` signal (`cnt`: answers since the start of the simulation; `tdo`: the last `C_RBB_DEPTH` = 1024 answers, the last one in the LSB), which the procedures read. Initialize the signal with `C_RBB_ANSWERS_INIT`. Call one monitor in the architecture of the testbench:
+
+- `rbb_axis_monitor(clk, tdata, tvalid, tready, answers [, scope])`: one answer per rising edge of `clk` with `tvalid` and `tready`;
+- `rbb_uart_monitor(rx, stop, answers [, scope, config])`: one answer per UART frame on `rx` (`config.uart_config`) while `stop` is `'0'`; after `stop` falls, it waits for an idle line.
+
+An answer other than `'0'` / `'1'` is an error.
+
+| Field of `t_rbb_bfm_config` | Default | Description |
+|-----------------------------|---------|-------------|
+| `uart`        | false | false: the commands on the AXI-Stream of `rbb_if` (`clk`); true: UART frames on `rbb_if.tx` |
+| `uart_config` | UVVM UART BFM default, 115200 baud, no parity, `id_for_bfm` = `ID_NEVER` | UART frames of the commands and of the answers (`rbb_uart_monitor`) |
+| `timeout`     | 1 ms | Maximum wait of `tready` and of the answers to `'R'` |
+| `id_for_bfm`  | `ID_BFM` | Message ID of the logs |
+
+`C_RBB_BFM_CONFIG_DEFAULT` is a deferred constant: build a configuration from it in a function, as for the JTAG BFM.
+
+### Procedures
+
+All of them take `msg, clk, rbb_if` and, when they wait for answers, `answers`; then the optional `scope, msg_id_panel, config` and `jtag_config` (`t_jtag_bfm_config`).
+
+| Procedure | Parameters | Bytes | Description |
+|-----------|------------|-------|-------------|
+| `rbb_command`  | `cmd, msg, clk, rbb_if [, scope, msg_id_panel, config]` | `cmd'length` | Sends the bytes of the string `cmd` (e.g. `rbb_reset_cmd('1', '0') & rbb_blink_cmd('1')`), no wait for the answers |
+| `rbb_read`     | `tdo (out), msg, clk, rbb_if, answers [, ...]` | 1 | `'R'`, then waits for its answer; `'X'` and an alert without answer |
+| `rbb_tms`      | `tms, msg, clk, rbb_if [, ...]` | 2 per bit + 1 | One TCK cycle per bit of `tms` (left first, TDI = 0), then TCK low (`bitbang_state_move` of OpenOCD) |
+| `rbb_reset`    | `msg, clk, rbb_if [, scope, msg_id_panel, config, jtag_config]` | 13 (+ 2 with TRST) | `'t'`, `'r'` when `jtag_config.trst_enable`, then 5 TCK with TMS = 1 and one with TMS = 0: Run-Test/Idle |
+| `rbb_idle`     | `num_cycles, msg, clk, rbb_if [, ...]` | 2 per cycle + 1 (none for 0) | TCK cycles in Run-Test/Idle |
+| `rbb_write_ir` | `ir_value, msg, clk, rbb_if, answers [, ..., jtag_config]` | 3 per bit (head and tail included) + 14 + 2 per idle cycle | IR scan of the target TAP (ones to the head and tail bits); checks the `"01"` it captured |
+| `rbb_scan_dr`  | `data_value, data_out (out), msg, clk, rbb_if, answers [, ..., jtag_config]` | 3 per bit (head and tail included) + 12 + 2 per idle cycle | DR scan of the target TAP (zeros to the head and tail bits), returns the value it captured (`'X'` and an alert when answers are missing) |
+| `rbb_check_dr` | `data_value, data_exp, msg, clk, rbb_if, answers [, alert_level, ..., jtag_config]` | as `rbb_scan_dr` | DR scan, then compares with `data_exp` (`'-'`: don't care bit) |
+
+A scan goes from Run-Test/Idle to Run-Test/Idle; for each bit: TCK low with TMS and TDI, `'R'`, TCK high (`bitbang_scan` of OpenOCD), LSB first, the last bit with TMS = 1. On the AXI-Stream, a byte is driven on the falling edge of `clk` and taken on a rising edge with `tready` (one byte per cycle at most; an alert after `config.timeout`). On the UART, the procedure returns after the stop bit of the last byte.
+
+### Usage
+
+```vhdl
+library asylum_uvvm;
+use     asylum_uvvm.jtag_bfm_pkg.all;
+use     asylum_uvvm.rbb_bfm_pkg.all;
+
+  signal rbb_if  : t_rbb_if      := init_rbb_if_signals;
+  signal answers : t_rbb_answers := C_RBB_ANSWERS_INIT;
+
+  -- In the architecture : DUT s_axis <- rbb_if, answers of its m_axis
+  s_axis_tdata  <= rbb_if.tdata;
+  s_axis_tvalid <= rbb_if.tvalid;
+  rbb_if.tready <= s_axis_tready;
+  rbb_axis_monitor(clk, m_axis_tdata, m_axis_tvalid, m_axis_tready, answers);
+
+  -- In the sequencer
+  rbb_reset   ("Reset the TAP", clk, rbb_if);
+  rbb_write_ir("00001", "IDCODE", clk, rbb_if, answers);
+  rbb_check_dr(x"00000000", x"4A7C0E35", "Read IDCODE", clk, rbb_if, answers);
+  rbb_command (rbb_reset_cmd('1', '0'), "TRST asserted", clk, rbb_if);
+```
+
+Through a UART (the DUT behind a UART receiver and transmitter): `config.uart` = true and the bit time in `config.uart_config`, `rbb_if.tx` to the RX pin of the DUT, and `rbb_uart_monitor(<TX pin of the DUT>, stop, answers, config => config)` with `stop` = `'0'` while the DUT answers on that pin.
+
+## OpenOCD co-simulation kit
+
+`asylum:verification:openocd` (`openocd.core`, files in `src_openocd/`) connects a real OpenOCD (remote_bitbang adapter, TCP) to a GHDL testbench, so that the JTAG logic of an IP is checked with the debugger that drives it on the board. It has no dependency; the IPs depend on it in the fileset of their co-simulation target. It is tested here by `sim_openocd_pin` and `sim_openocd_byte` ([Design Verification](#design-verification)).
+
+| File | Library / copied to | Role |
+|------|---------------------|------|
+| `rbb_server.c` | `rbb/rbb_server.c` | TCP server of the remote_bitbang adapter, built as `./librbb.so` and called through GHDL VHPIDIRECT. The first call waits 120 s at most for OpenOCD on 127.0.0.1:`RBB_PORT` (environment, default 9824); no call waits for a command, so the simulation keeps running |
+| `rbb_pkg.vhd`  | `asylum_uvvm` | VHPIDIRECT binding. BYTE mode, the DUT decodes the bytes: `rbb_recv` (next byte, `RBB_NONE` = -1: none yet, `RBB_CLOSED` = -2), `rbb_send(c)`. PIN mode, the DUT is a TAP: `rbb_tick(tdo)` decodes the commands up to the next pin change, answers `'R'` with `tdo` and returns the pins (bits `RBB_TCK` 0, `RBB_TMS` 1, `RBB_TDI` 2, `RBB_QUIT` 3, `RBB_TRST` 4, `RBB_SRST` 5; `'B'` / `'b'` ignored) |
+| `rbb_axis.vhd` | `asylum_uvvm` | Entity of the BYTE mode: the bytes of OpenOCD on `m_axis`, the answers of the DUT on `s_axis` (always ready), one byte each way per cycle of `clk_i` at most, after the reset; `quit_o` when OpenOCD closes the connection |
+| `rbb_jtag.vhd` | `asylum_uvvm` | Entity of the PIN mode: `tck_o`, `tms_o`, `tdi_o`, `trst_b_o`, `srst_b_o`, `tdo_i` (`'0'` / `'L'`: 0, anything else: 1, the pull-up of TDO), `quit_o`. Generic `CLK_DIV`: `rbb_tick` every `CLK_DIV` cycles of `clk_i`, so at least `CLK_DIV` cycles between two pin changes (TCK period >= 2 `CLK_DIV` cycles) |
+| `cosim.sh`     | `rbb/cosim.sh` | Hooks of the co-simulation target (below) |
+
+`cosim.sh` (cwd = work root):
+
+- `build` (pre_build): `gcc -shared -fPIC` of `rbb/rbb_server.c` into `./librbb.so`;
+- `start <openocd.cfg> [<gdb script>]` (pre_run): in the background, waits for the remote_bitbang port of the simulation, then
+  - without a GDB script: `openocd -f <openocd.cfg>`; the .cfg runs the checks, prints `SCENARIO PASS` or `SCENARIO FAIL` and ends with `shutdown` (log `openocd.log`);
+  - with a GDB script: OpenOCD with the .cfg (GDB port `GDB_PORT`, 3333, and TCL port `TCL_PORT`, 6666), then `gdb-multiarch -nx -batch -x <gdb script>` (log `gdb.log`), then `shutdown` on the TCL port;
+  
+  `./cosim.cfg`, `VAR=value` lines written by the testbench, is exported to OpenOCD and GDB. When OpenOCD quits, the server tells the testbench (`quit_o`, `RBB_CLOSED`), which ends the simulation;
+- `check` (post_run): prints the logs, fails unless the last one (`gdb.log`, else `openocd.log`) has the line `COSIM_PASS` (default `SCENARIO PASS`).
+
+Environment: `RBB_PORT`, `GDB_PORT`, `TCL_PORT`, `COSIM_PASS`, `COSIM_TIMEOUT` (1800 s for OpenOCD or GDB). It needs `gcc`, `openocd` and `gdb-multiarch` (with Python), present in the Asylum CI image. Each target runs in its own container in the CI, so every co-simulation uses the same port; two co-simulations on one host need different `RBB_PORT` values (and the same port in their .cfg).
+
+The core of an IP (the .cfg, the GDB script and the testbench stay in the IP):
+
+```yaml
+filesets:
+  sim_openocd:
+    files        :
+      - sim/openocd/tb_<ip>_openocd.vhd
+      - sim/openocd/<ip>.cfg : {file_type : user, copyto : openocd/<ip>.cfg}
+    file_type    : vhdlSource-2008
+    depend       :
+      - asylum:verification:openocd
+
+targets:
+  sim_openocd:
+    filesets_append : [sim_openocd]
+    toplevel        : tb_<ip>_openocd
+    hooks :
+      pre_build : [cosim_build]
+      pre_run   : [cosim_start]
+      post_run  : [cosim_check]
+
+scripts:
+  cosim_build : {cmd : [bash, rbb/cosim.sh, build]}
+  cosim_start : {cmd : [bash, rbb/cosim.sh, start, openocd/<ip>.cfg]}   # GDB : add openocd/<scenario>.py
+  cosim_check : {cmd : [bash, rbb/cosim.sh, check]}
+```
+
+The .cfg starts with the adapter lines of the co-simulation; on a board, replace them with the lines of the JTAG probe and keep the TAP and target lines:
+
+```tcl
+adapter driver remote_bitbang
+remote_bitbang host 127.0.0.1
+remote_bitbang port 9824
+transport select jtag
+```
+
+In the testbench, PIN mode:
+
+```vhdl
+  ins_rbb : entity asylum_uvvm.rbb_jtag
+    generic map
+    (CLK_DIV         => 4
+    )
+    port map
+    (clk_i           => clk
+    ,arst_b_i        => arst_b
+    ,tck_o           => tck
+    ,tms_o           => tms
+    ,tdi_o           => tdi
+    ,trst_b_o        => trst_b
+    ,srst_b_o        => srst_b
+    ,tdo_i           => tdo                -- 'Z' / 'H' out of the shifts : 1
+    ,quit_o          => quit               -- OpenOCD quit : end of the simulation
+    );
+```
+
+Pitfall of OpenOCD 0.12: after TRST, OpenOCD assumes BYPASS in every TAP; a `drscan` without a new `irscan` aborts on an assertion. Scan the IR first after `adapter assert trst`.
+
 ## Design Verification
 
 One self-checking UVVM testbench per BFM, in `sim/<bfm>/`, against a testbench-only model (no RTL of another IP, so that the IPs can use this library without a dependency loop). Scenarios are chosen at run time with the `TESTS_LIST` generic (one package per scenario, each one after a reset); an empty list only builds and elaborates the testbench.
 
 - `tb_apb`: APB3 slave model `tb_apb_slave` (memory of 256 words, a value derived from the address after the reset, `wait_states` cycles with `pready` low, `pslverr` at one address, `prdata` at `'X'` outside the end of a read) with a protocol checker (setup phase of one cycle, `psel`, `penable`, `paddr`, `pwrite`, `pwdata` held until `pready`).
 - `tb_jtag`: IEEE 1149.1 TAP model `tb_jtag_tap` (16-state controller, `IR_WIDTH`-bit IR, IDCODE, BYPASS, a `DR_WIDTH`-bit user data register, TRST* and power-on reset, a wrong Capture-IR value on request) whose state is checked to be Run-Test/Idle after each procedure (Test-Logic-Reset after `jtag_trst`); monitors: TMS / TDI change only while TCK is low, count of the TRST* pulses and of the TCK edges, and `jtag_ir_capture_monitor` of the BFM, which checks every IR scan of every scenario.
+- `tb_rbb`: the remote_bitbang BFM drives a testbench-only decoder `tb_rbb_decoder` (the commands of the table above, one per cycle, `s_axis_tready` low while an answer is pending, an error on any other byte; on request, `'R'` not answered or `s_axis_tready` held low) in front of the chain of the three TAP models of `tb_jtag` (pull-up on TDO). In the scenario `uart`, the commands are received from `rbb_if.tx` and the answers sent back with the UVVM UART BFM (16 clock cycles per bit). The state of the TAPs is checked to be Run-Test/Idle after each scan; monitors: TMS / TDI change only while TCK is low, count of the TCK edges and of the TRST* pulses, count of the commands taken by the decoder.
+- `tb_openocd` (`sim_openocd_*`): OpenOCD 0.12 runs `sim/openocd/tap.cfg` (IDCODE, three DR scans of the 16-bit user data register, IDCODE after TRST, SRST) on the TAP model of `tb_jtag`, through `rbb_jtag` (`MODE` = `pin`, `CLK_DIV` 4) or through `rbb_axis` and `tb_rbb_decoder` (`MODE` = `byte`). The testbench checks that OpenOCD closed the connection, drove TCK, asserted TRST* and SRST*, and in PIN mode that the pins changed 4 cycles apart at least; in BYTE mode that it read TDO and switched the LED on.
 - `tb_jtag` with `MODEL` = `chain`: `TDI -> TAP 0 -> TAP 1 -> TAP 2 -> TDO`, IR of 8, 5 and 4 bits, a different IDCODE and user data register width (12, 33, 3 bits) per TAP, pull-ups between the TAPs. The instruction of every TAP is checked after each targeted IR scan (the target holds its opcode, the others BYPASS). Two Capture-IR monitors run in every chain scenario: one on the whole chain (`ir_width` 17, `head_ir` 0), one on TAP 1 at its place (`head_ir` 4).
 
 Expected alerts of the BFM procedures (mismatch, `pslverr`, timeout) are raised with severity `WARNING` and counted with `get_alert_counter`, so that a failing count check (`ERROR`) is never hidden by an expected error. The Capture-IR monitor is concurrent, so its severity cannot change with the scenario: its expected alerts stay `ERROR` (`increment_expected_alerts_and_stop_limit`) and their count is checked with `TB_ERROR`. The same rule, the other way round, for the expected `TB_ERROR` of `jtag_trst` (count checked with `ERROR`).
@@ -259,13 +424,23 @@ Expected alerts of the BFM procedures (mismatch, `pslverr`, timeout) are raised 
 | `sim_jtag_chain_bypass`     | Chain: every TAP in BYPASS (8 bits delayed by 3); each TAP as the target in BYPASS: 1-bit scan (capture 0), 8-bit scan | 48 |
 | `sim_jtag_chain_user_dr`    | Chain: user data register of each TAP written, read back after the scans of the other TAPs, then the whole chain in one scan (every value at its place) | 48 |
 | `sim_jtag_chain_ir_capture` | Chain: wrong Capture-IR value of each TAP (alert of the whole chain monitor, and of the TAP 1 monitor for TAP 1 only); `head_ir` one bit too large: alert of `jtag_write_ir` | 22 |
+| `sim_rbb_commands` | Bytes of `rbb_write_cmd` (every value of TCK, TMS, TDI), `rbb_reset_cmd` (every value of TRST, SRST), `rbb_blink_cmd`, three commands in one `rbb_command`; commands taken, no answer | 22 |
+| `sim_rbb_tms`      | `rbb_tms`, `rbb_reset` without and with TRST*, `rbb_idle` (4 and 0 cycles): state of the TAPs, number of commands and of TCK cycles, TCK low, TRST* pulses | 35 |
+| `sim_rbb_read`     | `rbb_read` in Run-Test/Idle (pull-up), then one `rbb_read` per bit of the IDCODE in Shift-DR; one answer per read | 5 |
+| `sim_rbb_idcode`   | IDCODE of the whole chain; each TAP as the target (head / tail bits): IDCODE written to it alone, read with `rbb_check_dr` and `rbb_scan_dr`, then the target in BYPASS: 8 bits delayed by the chain (the head bits reach TDO) | 39 |
+| `sim_rbb_user_dr`  | User data register of each TAP with 2 idle cycles per scan (number of TCK cycles), then the whole chain in one scan | 31 |
+| `sim_rbb_uart`     | The commands and the answers as UART frames: reset, IDCODE of the chain, user data register of TAP 1, `rbb_read`, TRST, SRST, LED | 14 |
+| `sim_rbb_errors`   | Mismatch (one alert) and don't care bits of `rbb_check_dr`; `'R'` not answered: alerts of `rbb_read` (`'X'`) and `rbb_scan_dr` (data `'X'`); a command not taken; `head_ir` one bit too large: alert of `rbb_write_ir` | 14 |
+| `sim_openocd_pin`  | Co-simulation, PIN mode: `SCENARIO PASS` of OpenOCD (5 checks of `tap.cfg`), and the checks of the testbench | 5 |
+| `sim_openocd_byte` | Co-simulation, BYTE mode: `SCENARIO PASS` of OpenOCD (5 checks of `tap.cfg`), and the checks of the testbench | 6 |
 
-Checks: number of `=> OK` lines of the log. `sim_apb`, `sim_jtag` and `sim_jtag_chain` build the testbenches only (5-bit IR, 40-bit user data register, TCK 100 ns for `sim_jtag`; chain of 3 TAPs for `sim_jtag_chain`).
+Checks: number of `=> OK` lines of the log (for `sim_openocd_*`, those of the testbench; OpenOCD prints one `OK` line per check of `tap.cfg`). `sim_apb`, `sim_jtag`, `sim_jtag_chain` and `sim_rbb` build the testbenches only (5-bit IR, 40-bit user data register, TCK 100 ns for `sim_jtag`; chain of 3 TAPs for `sim_jtag_chain` and `sim_rbb`).
 
-The testbenches were validated with mutants of the BFMs (scratch copies, each scenario run alone): penable never set, pready ignored, pslverr not checked, no setup phase, `apb_check` that never fails, timeout one cycle early, reads sent as writes; TDO sampled after TCK fell again, MSB first, wrong TMS on the path to Shift-DR (two places), IR one bit too long or too short, no TRST* pulse, TRST* never released, reset with 2 TMS = 1 only, `idle_cycles` ignored, `jtag_check_dr` that never fails, TMS / TDI changed with the rising edge; `jtag_trst` with a TCK edge, with TMS = 0, without `TB_ERROR` when `trst_enable` is false; a monitor that never alerts, checks only the two LSB, samples TDO in Capture-IR instead of Shift-IR, ignores TRST* (two ways), keeps the last `ir_width` bits instead of the first ones, or does not clear the captured value at Capture-IR; chain: head and tail swapped (IR, DR), IR padded with zeros, DR padded with ones, head or tail bits not shifted (IR, DR), DR read value not stripped of the head bits, scan one bit short, a monitor that ignores the chain position or uses `tail_ir`. Every one is killed by at least one scenario.
+The testbenches were validated with mutants of the BFMs (scratch copies, each scenario run alone): penable never set, pready ignored, pslverr not checked, no setup phase, `apb_check` that never fails, timeout one cycle early, reads sent as writes; TDO sampled after TCK fell again, MSB first, wrong TMS on the path to Shift-DR (two places), IR one bit too long or too short, no TRST* pulse, TRST* never released, reset with 2 TMS = 1 only, `idle_cycles` ignored, `jtag_check_dr` that never fails, TMS / TDI changed with the rising edge; `jtag_trst` with a TCK edge, with TMS = 0, without `TB_ERROR` when `trst_enable` is false; a monitor that never alerts, checks only the two LSB, samples TDO in Capture-IR instead of Shift-IR, ignores TRST* (two ways), keeps the last `ir_width` bits instead of the first ones, or does not clear the captured value at Capture-IR; chain: head and tail swapped (IR, DR), IR padded with zeros, DR padded with ones, head or tail bits not shifted (IR, DR), DR read value not stripped of the head bits, scan one bit short, a monitor that ignores the chain position or uses `tail_ir`; remote_bitbang: a wrong TMS byte (TCK high with TMS 0), the last byte of a TMS move with TCK high, TMS bits right first, the `'R'` of the last bit lost, answers decoded in the wrong order or one bit off, head and tail swapped (IR, DR), IR padded with zeros, DR padded with ones, the last bit without TMS = 1, data MSB first, no wait for the answers, missing answers not detected, `rbb_read` always `'1'`, reset without the final TMS 0 or with 4 TMS = 1, SRST instead of TRST, TRST / SRST or TCK / TDI swapped in the command bytes, LED inverted, `idle_cycles` ignored, UART ignored, `tready` not waited, `tvalid` not cleared, `rbb_check_dr` that never fails, Capture-IR not checked, IR scan through Select-DR only, a deaf AXI-Stream monitor, a UART monitor that drops the answers; kit: `rbb_tick` that returns the byte and `rbb_axis` that calls `rbb_tick` (BYTE and PIN modes swapped), TDO not returned (`rbb_tick`, `rbb_jtag`, `rbb_axis`), TRST not decoded, TRST / SRST swapped in `rbb_jtag`, `CLK_DIV` ignored, TCK / TDI swapped in `rbb_tick`, a byte overwritten while `tready` is low. Every one is killed by at least one scenario.
 
 ```bash
 make sim_jtag_idcode                                   # one target (FuseSoC, GHDL)
+make sim_openocd_pin                                   # co-simulation (gcc, openocd)
 make nonreg                                            # every sim_* target
 fusesoc --cores-root . run --build-root build --no-export --run \
   --target sim_jtag asylum:verification:uvvm --TESTS_LIST=idcode,bypass
@@ -275,11 +450,17 @@ fusesoc --cores-root . run --build-root build --no-export --run \
 
 ```
 uvvm.core               FuseSoC core asylum:verification:uvvm
+openocd.core            FuseSoC core asylum:verification:openocd (co-simulation kit)
 src_bfm/                BFM packages (library asylum_uvvm)
   apb_bfm_pkg.vhd       APB3 master
   jtag_bfm_pkg.vhd      IEEE 1149.1 JTAG master
+  rbb_bfm_pkg.vhd       OpenOCD remote_bitbang master
+src_openocd/            co-simulation kit: rbb_server.c, rbb_pkg.vhd, rbb_axis.vhd,
+                        rbb_jtag.vhd (library asylum_uvvm), cosim.sh
 sim/apb/                tb_apb: APB slave model, helpers, one package per scenario
 sim/jtag/               tb_jtag: TAP model, helpers, one package per scenario
+sim/rbb/                tb_rbb: remote_bitbang decoder, helpers, one package per scenario
+sim/openocd/            tb_openocd and tap.cfg: co-simulation of the kit
 doc/                    WaveDrom timing diagrams (make -C doc)
 Makefile, mk/           common Makefile of the Asylum IPs, targets list
 .github/workflows/      CI: one job per sim_* target (make ci_generate)
