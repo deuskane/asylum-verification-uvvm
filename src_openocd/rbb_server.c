@@ -23,6 +23,8 @@
 //              No call waits for a command : the simulation keeps running.
 //              The first call waits for OpenOCD on 127.0.0.1:RBB_PORT
 //              (environment, default 9824), -2 / quit after 120 s without it.
+//              A socket error (OpenOCD killed : ECONNRESET) closes the
+//              connection, as an end of file : -2 / quit.
 //              Build : gcc -shared -fPIC -o librbb.so rbb_server.c
 //-----------------------------------------------------------------------------
 // Copyright (c) 2026
@@ -33,8 +35,12 @@
 //                               asylum-debug-jtag (BYTE mode) and
 //                               remote_bitbang.c of asylum-processor-WardRV
 //                               (PIN mode)
+// 2026-11-24  1.1      mrosiere Socket error = connection closed (no wait
+//                               for the testbench timeout), listening
+//                               socket closed when bind / listen fails
 //-----------------------------------------------------------------------------
 
+#include <errno.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <poll.h>
@@ -92,6 +98,7 @@ static void rbb_open (void)
       listen(server,1) < 0)
     {
       perror("rbb_server");
+      close(server);
       return;
     }
   printf("rbb_server : waiting for OpenOCD on port %d\n",ntohs(addr.sin_port));
@@ -109,6 +116,22 @@ static void rbb_open (void)
   close(server);
 }
 
+// OpenOCD closed the connection (end of file) or the socket failed
+static int rbb_lost (const char *why)
+{
+  printf("rbb_server : %s\n",why);
+  fflush(stdout);
+  close(client);
+  closed = 1;
+  return RBB_CLOSED;
+}
+
+// The error of recv / send is "try again", not a lost connection
+static int rbb_again (void)
+{
+  return errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR;
+}
+
 //--------------------------------------
 // BYTE mode : next byte of OpenOCD
 //--------------------------------------
@@ -124,17 +147,13 @@ int rbb_recv (void)
       rx_len = recv(client,rx,BUF_SIZE,MSG_DONTWAIT);
       rx_pos = 0;
       if (rx_len == 0)                                         // Connection closed
-        {
-          printf("rbb_server : OpenOCD closed the connection\n");
-          fflush(stdout);
-          close(client);
-          closed = 1;
-          return RBB_CLOSED;
-        }
-      if (rx_len < 0)                                          // Nothing yet
+        return rbb_lost("OpenOCD closed the connection");
+      if (rx_len < 0)
         {
           rx_len = 0;
-          return RBB_NONE;
+          if (rbb_again())                                     // Nothing yet
+            return RBB_NONE;
+          return rbb_lost(strerror(errno));                    // OpenOCD killed : ECONNRESET
         }
     }
   return rx[rx_pos++];
@@ -147,8 +166,9 @@ void rbb_send (int c)
 {
   unsigned char b = c;
 
-  if (!closed)
-    send(client,&b,1,MSG_NOSIGNAL);
+  while (!closed && send(client,&b,1,MSG_NOSIGNAL) < 0)
+    if (!rbb_again())
+      rbb_lost(strerror(errno));
 }
 
 //--------------------------------------

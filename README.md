@@ -327,7 +327,7 @@ Through a UART (the DUT behind a UART receiver and transmitter): `config.uart` =
   - without a GDB script: `openocd -f <openocd.cfg>`; the .cfg runs the checks, prints `SCENARIO PASS` or `SCENARIO FAIL` and ends with `shutdown` (log `openocd.log`);
   - with a GDB script: OpenOCD with the .cfg (GDB port `GDB_PORT`, 3333, and TCL port `TCL_PORT`, 6666), then `gdb-multiarch -nx -batch -x <gdb script>` (log `gdb.log`), then `shutdown` on the TCL port;
   
-  `./cosim.cfg`, `VAR=value` lines written by the testbench, is exported to OpenOCD and GDB. When OpenOCD quits, the server tells the testbench (`quit_o`, `RBB_CLOSED`), which ends the simulation;
+  `./cosim.cfg`, `VAR=value` lines written by the testbench, is exported to OpenOCD and GDB. When OpenOCD quits, or is killed (a socket error is a closed connection), the server tells the testbench (`quit_o`, `RBB_CLOSED`), which ends the simulation;
 - `check` (post_run): prints the logs, fails unless the last one (`gdb.log`, else `openocd.log`) has the line `COSIM_PASS` (default `SCENARIO PASS`).
 
 Environment: `RBB_PORT`, `GDB_PORT`, `TCL_PORT`, `COSIM_PASS`, `COSIM_TIMEOUT` (1800 s for OpenOCD or GDB). It needs `gcc`, `openocd` and `gdb-multiarch` (with Python), present in the Asylum CI image. Each target runs in its own container in the CI, so every co-simulation uses the same port; two co-simulations on one host need different `RBB_PORT` values (and the same port in their .cfg).
