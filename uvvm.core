@@ -35,6 +35,7 @@ filesets:
     files        :
       - src_bfm/apb_bfm_pkg.vhd
       - src_bfm/jtag_bfm_pkg.vhd
+      - src_bfm/rbb_bfm_pkg.vhd
     file_type    : vhdlSource-2008
     logical_name : asylum_uvvm
     depend       :
@@ -83,6 +84,30 @@ filesets:
       - sim/jtag/tb_jtag_chain_ir_capture_pkg.vhd
       - sim/jtag/tb_jtag_tests_pkg.vhd
       - sim/jtag/tb_jtag.vhd
+    file_type    : vhdlSource-2008
+    depend       :
+      # string_pkg list_length / list_item / list_contains (TESTS_LIST)
+      - ">=asylum:utils:pkg:1.10.0"
+
+  #---------------------------------------
+  # Testbench of rbb_bfm_pkg : remote_bitbang decoder and the chain of TAP
+  # models of tb_jtag, one package per scenario
+  #---------------------------------------
+  sim_rbb:
+    files        :
+      - sim/jtag/tb_jtag_bfm_pkg.vhd
+      - sim/jtag/tb_jtag_tap.vhd
+      - sim/rbb/tb_rbb_decoder.vhd
+      - sim/rbb/tb_rbb_bfm_pkg.vhd
+      - sim/rbb/tb_rbb_commands_pkg.vhd
+      - sim/rbb/tb_rbb_tms_pkg.vhd
+      - sim/rbb/tb_rbb_read_pkg.vhd
+      - sim/rbb/tb_rbb_idcode_pkg.vhd
+      - sim/rbb/tb_rbb_user_dr_pkg.vhd
+      - sim/rbb/tb_rbb_uart_pkg.vhd
+      - sim/rbb/tb_rbb_errors_pkg.vhd
+      - sim/rbb/tb_rbb_tests_pkg.vhd
+      - sim/rbb/tb_rbb.vhd
     file_type    : vhdlSource-2008
     depend       :
       # string_pkg list_length / list_item / list_contains (TESTS_LIST)
@@ -364,6 +389,87 @@ targets:
       - TESTS_LIST=chain_ir_capture
       - MODEL=chain
       - TCK_PERIOD_NS=100
+
+  #---------------------------------------
+  # tb_rbb : compiled once, scenarios chosen at run time (TESTS_LIST,
+  # empty : build and elaboration only), chain of the 3 TAP models of
+  # tb_jtag behind a remote_bitbang decoder. sim_rbb (build only) and one
+  # sim_rbb_<test> target per scenario. Generated.
+  #---------------------------------------
+  sim_rbb: &sim_rbb
+    << : *default
+    description     : Simulation of rbb_bfm_pkg against a remote_bitbang decoder and a chain of 3 TAP models - build only (scenarios of TESTS_LIST)
+    filesets_append :
+      - sim_rbb
+    toplevel        : tb_rbb
+    parameters      :
+      - TESTS_LIST
+    default_tool    : ghdl
+    tools :
+      ghdl :
+        analyze_options :
+          - "$(GHDL_ANALYZE_OPTION)"
+          - "-Wall"
+          - "-frelaxed"
+        run_options     :
+          - "$(GHDL_RUN_OPTION)"
+          - "--ieee-asserts=disable"
+
+  #---------------------------------------
+  sim_rbb_commands:
+  #---------------------------------------
+    << : *sim_rbb
+    description     : Simulation of rbb_bfm_pkg - command bytes of rbb_write_cmd, rbb_reset_cmd, rbb_blink_cmd on the outputs of the decoder
+    parameters      :
+      - TESTS_LIST=commands
+
+  #---------------------------------------
+  sim_rbb_tms:
+  #---------------------------------------
+    << : *sim_rbb
+    description     : Simulation of rbb_bfm_pkg - TMS moves, reset without and with TRST, idle cycles - state of the TAPs, commands and TCK cycles
+    parameters      :
+      - TESTS_LIST=tms
+
+  #---------------------------------------
+  sim_rbb_read:
+  #---------------------------------------
+    << : *sim_rbb
+    description     : Simulation of rbb_bfm_pkg - rbb_read in Run-Test/Idle (pull-up) and bit by bit in Shift-DR (IDCODE)
+    parameters      :
+      - TESTS_LIST=read
+
+  #---------------------------------------
+  sim_rbb_idcode:
+  #---------------------------------------
+    << : *sim_rbb
+    description     : Simulation of rbb_bfm_pkg - IDCODE of the chain, then of each TAP as the target (head / tail bits), BYPASS delay of the chain
+    parameters      :
+      - TESTS_LIST=idcode
+
+  #---------------------------------------
+  sim_rbb_user_dr:
+  #---------------------------------------
+    << : *sim_rbb
+    description     : Simulation of rbb_bfm_pkg - user data register of each TAP with idle cycles, then the whole chain
+    parameters      :
+      - TESTS_LIST=user_dr
+
+  #---------------------------------------
+  sim_rbb_uart:
+  #---------------------------------------
+    << : *sim_rbb
+    description     : Simulation of rbb_bfm_pkg - commands and answers as UART frames - IDCODE, user data register, rbb_read, TRST, SRST, LED
+    parameters      :
+      - TESTS_LIST=uart
+
+  #---------------------------------------
+  sim_rbb_errors:
+  #---------------------------------------
+    << : *sim_rbb
+    description     : Simulation of rbb_bfm_pkg - alerts - mismatch and don't care of rbb_check_dr, answers missing, command not taken, wrong head_ir
+    parameters      :
+      - TESTS_LIST=errors
 
 #=========================================
 parameters :

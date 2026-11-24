@@ -122,8 +122,48 @@ jobs:
     with:
       name: sim_jtag_user_dr
 
+  sim_rbb:
+    uses: deuskane/asylum-ci/.github/workflows/vhdl-ci.yml@main
+    with:
+      name: sim_rbb
+
+  sim_rbb_commands:
+    uses: deuskane/asylum-ci/.github/workflows/vhdl-ci.yml@main
+    with:
+      name: sim_rbb_commands
+
+  sim_rbb_errors:
+    uses: deuskane/asylum-ci/.github/workflows/vhdl-ci.yml@main
+    with:
+      name: sim_rbb_errors
+
+  sim_rbb_idcode:
+    uses: deuskane/asylum-ci/.github/workflows/vhdl-ci.yml@main
+    with:
+      name: sim_rbb_idcode
+
+  sim_rbb_read:
+    uses: deuskane/asylum-ci/.github/workflows/vhdl-ci.yml@main
+    with:
+      name: sim_rbb_read
+
+  sim_rbb_tms:
+    uses: deuskane/asylum-ci/.github/workflows/vhdl-ci.yml@main
+    with:
+      name: sim_rbb_tms
+
+  sim_rbb_uart:
+    uses: deuskane/asylum-ci/.github/workflows/vhdl-ci.yml@main
+    with:
+      name: sim_rbb_uart
+
+  sim_rbb_user_dr:
+    uses: deuskane/asylum-ci/.github/workflows/vhdl-ci.yml@main
+    with:
+      name: sim_rbb_user_dr
+
   badges:
-    needs: [sim_apb, sim_apb_back_to_back, sim_apb_pslverr, sim_apb_reset_values, sim_apb_timeout, sim_apb_wait_states, sim_apb_write_read, sim_jtag, sim_jtag_bypass, sim_jtag_chain, sim_jtag_chain_bypass, sim_jtag_chain_idcode, sim_jtag_chain_ir_capture, sim_jtag_chain_user_dr, sim_jtag_idcode, sim_jtag_idle, sim_jtag_ir8, sim_jtag_ir_capture, sim_jtag_ir_capture_error, sim_jtag_reset_tms, sim_jtag_reset_trst, sim_jtag_trst, sim_jtag_user_dr]
+    needs: [sim_apb, sim_apb_back_to_back, sim_apb_pslverr, sim_apb_reset_values, sim_apb_timeout, sim_apb_wait_states, sim_apb_write_read, sim_jtag, sim_jtag_bypass, sim_jtag_chain, sim_jtag_chain_bypass, sim_jtag_chain_idcode, sim_jtag_chain_ir_capture, sim_jtag_chain_user_dr, sim_jtag_idcode, sim_jtag_idle, sim_jtag_ir8, sim_jtag_ir_capture, sim_jtag_ir_capture_error, sim_jtag_reset_tms, sim_jtag_reset_trst, sim_jtag_trst, sim_jtag_user_dr, sim_rbb, sim_rbb_commands, sim_rbb_errors, sim_rbb_idcode, sim_rbb_read, sim_rbb_tms, sim_rbb_uart, sim_rbb_user_dr]
     if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       contents: write

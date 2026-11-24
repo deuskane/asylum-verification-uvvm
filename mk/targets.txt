@@ -22,4 +22,12 @@ sim_jtag_reset_tms        : Simulation of jtag_bfm_pkg - reset by TMS only (no T
 sim_jtag_reset_trst       : Simulation of jtag_bfm_pkg - TRST pulse then TMS reset, IDCODE selected
 sim_jtag_trst             : Simulation of jtag_bfm_pkg - TRST pulse alone (jtag_trst), no TCK edge, TB_ERROR without TRST
 sim_jtag_user_dr          : Simulation of jtag_bfm_pkg - wide user data register, IR then DR scans
+sim_rbb                   : Simulation of rbb_bfm_pkg against a remote_bitbang decoder and a chain of 3 TAP models - build only (scenarios of TESTS_LIST)
+sim_rbb_commands          : Simulation of rbb_bfm_pkg - command bytes of rbb_write_cmd, rbb_reset_cmd, rbb_blink_cmd on the outputs of the decoder
+sim_rbb_errors            : Simulation of rbb_bfm_pkg - alerts - mismatch and don't care of rbb_check_dr, answers missing, command not taken, wrong head_ir
+sim_rbb_idcode            : Simulation of rbb_bfm_pkg - IDCODE of the chain, then of each TAP as the target (head / tail bits), BYPASS delay of the chain
+sim_rbb_read              : Simulation of rbb_bfm_pkg - rbb_read in Run-Test/Idle (pull-up) and bit by bit in Shift-DR (IDCODE)
+sim_rbb_tms               : Simulation of rbb_bfm_pkg - TMS moves, reset without and with TRST, idle cycles - state of the TAPs, commands and TCK cycles
+sim_rbb_uart              : Simulation of rbb_bfm_pkg - commands and answers as UART frames - IDCODE, user data register, rbb_read, TRST, SRST, LED
+sim_rbb_user_dr           : Simulation of rbb_bfm_pkg - user data register of each TAP with idle cycles, then the whole chain
 
