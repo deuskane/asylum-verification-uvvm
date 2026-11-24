@@ -20,9 +20,12 @@ CAPI=2:
 #                               jtag_ir_capture_monitor
 # 2026-11-23  1.2.0    mrosiere jtag_bfm_pkg : chain of TAPs (head_ir,
 #                               tail_ir, head_dr, tail_dr)
+# 2026-11-24  1.3.0    mrosiere rbb_bfm_pkg : OpenOCD remote_bitbang BFM ;
+#                               sim_openocd_* : co-simulation of the kit
+#                               asylum:verification:openocd (openocd.core)
 #-----------------------------------------------------------------------------
 
-name        : asylum:verification:uvvm:1.2.0
+name        : asylum:verification:uvvm:1.3.0
 description : UVVM BFMs of the Asylum testbenches
 
 #=========================================
